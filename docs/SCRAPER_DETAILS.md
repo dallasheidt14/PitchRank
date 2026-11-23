@@ -168,12 +168,18 @@ GotSport API
 - **Timeout:** 30 seconds per request
 - **Retry delay:** 2 seconds between retries
 
-## Incremental Scraping
+## Scrape Window
 
-- **First-time scrape:** Uses October 17, 2025 as baseline (or custom `--since-date`)
-- **Incremental scrape:** Uses `last_scraped_at` from database
-- **Date filtering:** Only scrapes games after the `since_date`
-- **Efficiency:** Avoids re-scraping old games
+- **Start:** `scrape_start_date` in `src/scrapers/gotsport.py`: the earlier of Aug 1 of the current season
+  and 90 days before the date the scrape is for. That date is a queued request's date, else today (top-up
+  teams in either drainer, and `scrape_games.py`). `scrape_games.py --since-date` replaces the start with
+  the date given.
+- **Not `last_scraped_at`:** the importer stamps that on both teams of every imported game, so a team
+  that appeared as an opponent would skip games it played before that import.
+- **Date filtering:** GotSport returns the team's past-dated matches, scored or not; the scraper keeps the
+  newest 30 and drops those dated before the start. Because each scrape re-reads the season, the importer
+  skips a game already stored under the same date and teams, unless it can fill the stored row's missing
+  score or apply a GotSport score correction.
 
 ## Error Handling
 
@@ -207,12 +213,4 @@ Each line in the JSONL file contains:
   "opponent_club_name": "Soccer Stars Club"
 }
 ```
-
-## Current Run Details
-
-**What's happening now:**
-- Scraping teams with NULL `last_scraped_at`
-- Using `since_date` = October 17, 2025
-- Will automatically import after scraping completes
-- Saving to: `data/raw/scraped_games_YYYYMMDD_HHMMSS.jsonl`
 

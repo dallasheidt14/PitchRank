@@ -40,7 +40,13 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from src.etl.bulk_ops import bulk_update_last_scraped_at
-from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError, get_waf_breaker
+from src.scrapers.gotsport import (
+    GotSportScraper,
+    TeamNotFoundError,
+    WAFBlockedError,
+    get_waf_breaker,
+    scrape_start_date,
+)
 from src.utils.placeholder_team_names import is_placeholder_team_name
 from supabase import create_client
 
@@ -161,7 +167,7 @@ def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Dict[st
 
 
 # ---------------------------------------------------------------------------
-# Queue operations (the only part that differs from scrape_games.py)
+# Queue operations
 # ---------------------------------------------------------------------------
 
 
@@ -418,7 +424,7 @@ def _finalize_queue_items(supabase, queue_map: Dict[str, str], log_buffer: List[
 
 
 # ---------------------------------------------------------------------------
-# Concurrent scraping (cloned from scrape_games.py — identical)
+# Concurrent scraping (cloned from scrape_games.py; the start date comes from each request's game_date)
 # ---------------------------------------------------------------------------
 
 
@@ -426,8 +432,6 @@ async def _scrape_team_concurrent(
     semaphore: Semaphore,
     scraper: GotSportScraper,
     team: Dict,
-    since_date,
-    scrape_dates_cache: Dict[str, Optional[datetime]],
     file_lock: threading.Lock,
     output_file_handle,
     log_buffer: List[Dict[str, Any]],
@@ -444,12 +448,8 @@ async def _scrape_team_concurrent(
         team_master_id = team.get("team_id_master")
 
         try:
-            # Determine since_date for this team
-            if since_date:
-                team_since_date = datetime.combine(since_date, datetime.min.time())
-            else:
-                team_since_date = scrape_dates_cache.get(team_master_id)
-
+            request_date = date.fromisoformat(team["game_date"]) if team.get("game_date") else None
+            team_since_date = datetime.combine(scrape_start_date(request_date), datetime.min.time())
             game_data_list = await asyncio.to_thread(scraper.scrape_team_games, team_id, since_date=team_since_date)
 
             games = []
@@ -560,10 +560,11 @@ async def drain_queue(
     """
     Drain the scrape_requests queue using concurrent scraping.
 
-    Clone of scrape_games() with one change: teams come from the
+    Clone of scrape_games() with two changes: teams come from the
     scrape_requests queue first, then from a direct teams-table query
     (most-recently-scraped first) to top up the batch when the queue
-    falls short of --limit.
+    falls short of --limit; and each claimed request is read from its own
+    game_date's scrape start rather than one start for every team.
     """
     if concurrency < 1:
         console.print("[red]--concurrency must be at least 1[/red]")
@@ -609,7 +610,7 @@ async def drain_queue(
         console.print("[dim]Fetching team metadata...[/dim]")
         team_meta = _fetch_team_metadata(supabase, team_id_masters)
 
-        # Build team dicts (same shape as scrape_games.py expects)
+        # Build team dicts (plus game_date, which sets each claimed request's scrape start)
         teams: List[Dict] = []
         for item in claimed:
             tid = item["team_id_master"]
@@ -620,13 +621,14 @@ async def drain_queue(
                     "team_name": item.get("team_name"),
                     "provider_id": item.get("provider_id"),
                     "provider_team_id": item.get("provider_team_id"),
+                    "game_date": item.get("game_date"),
                     "age_group": meta.get("age_group"),
                     "birth_year": meta.get("birth_year"),
                     "last_scraped_at": meta.get("last_scraped_at"),
                 }
             )
 
-        # ---- FROM HERE: identical to scrape_games.py ----
+        # ---- FROM HERE: filtering mirrors scrape_games.py ----
 
         # Filter out U8/U9 and U20+ teams (PitchRank supports U10-U19)
         filtered_teams = []
@@ -661,8 +663,7 @@ async def drain_queue(
         # The top-up can select a team that still has a pending row in
         # scrape_requests (this run didn't claim it because --limit was already
         # hit). That team gets scraped again once a later run claims its queue
-        # row. That's wasted work, not corruption — the import path dedupes and
-        # the second scrape is incremental.
+        # row. That's wasted work, not corruption — the import path dedupes.
         queue_team_count = len(teams)
         shortfall = limit - queue_team_count
         if shortfall > 0:
@@ -715,23 +716,9 @@ async def drain_queue(
     try:
         console.print(f"[bold cyan]Scraping games for {len(teams)} teams[/bold cyan]")
         console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
-        console.print("[dim]Using per-team last_scraped_at for incremental scraping[/dim]\n")
-
-        # Build scrape-date cache from team metadata
-        scrape_dates_cache: Dict[str, Optional[datetime]] = {}
-        for t in teams:
-            tid = t.get("team_id_master")
-            if not tid:
-                continue
-            last_scraped = t.get("last_scraped_at")
-            if last_scraped:
-                try:
-                    scrape_dates_cache[tid] = datetime.fromisoformat(last_scraped.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    scrape_dates_cache[tid] = None
-            else:
-                scrape_dates_cache[tid] = None
-        console.print(f"[green]✓[/green] Scrape-date cache built for {len(scrape_dates_cache)} teams\n")
+        console.print(
+            f"[dim]Reading games from {scrape_start_date()}, or 90 days before a request's date if earlier[/dim]\n"
+        )
 
         # Set up output file for incremental saving
         if not output_file:
@@ -766,8 +753,6 @@ async def drain_queue(
                         semaphore,
                         scraper,
                         team,
-                        None,  # no global since_date override — use per-team cache
-                        scrape_dates_cache,
                         file_lock,
                         output_file_handle,
                         log_buffer,

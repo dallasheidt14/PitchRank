@@ -2020,3 +2020,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: A customer reported on 2026-11-20 that the Washington guide left out EA, which their team has played for two seasons; Washington was fixed with this entry and Nevada already lists EA. Live teams with a `modular11_ea` alias, by `teams.state_code` (2026-11-20): CA 504, CO 65, TX 60, IL 57, NY 55, OR 44, GA 35, FL 25, UT 20, IN 15, WI 15, NJ 10, AZ 10, and none of those 13 guides names the league (Utah's "7 Elite Academy" is a club; the Texas mention is in the Texas data report, not the guide). The seo skill's State Guide Posts step 4 covers naming EA clubs by club rather than squad label and not taking an age span from the import.
 - **Noted**: 2026-11-20
 - **Refs**: branch `content/state-guides-add-ea` (Washington in #1480); 18 more guides now list EA. Connecticut, Idaho, Massachusetts, Missouri and Tennessee (5 EA teams each) were added beyond the 13 listed above; Arizona and Colorado have no league list, so EA went into their league sentence; California and Texas into their tracked-leagues list
+
+### process_missing_games advances last_scraped_at after a window-limited scrape
+
+- **ID**: IMP-132
+- **Status**: done
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/process_missing_games.py` (`scrape_games_for_date`, `_flush_scrape_log`), `scripts/drain_queue.py:687-700` (`scrape_dates_cache`)
+- **Why**: `teams.last_scraped_at` is not only the re-probe clock; it is the incremental watermark `drain_queue.py` and `scrape_games.py` pass as `since_date`, and `GotSportScraper.scrape_team_games` enforces it hard. But this path scrapes only `[game_date-90, game_date+90]`, and `game_date` is today or yesterday for essentially every request. Stamping `now()` therefore claims coverage the scrape did not have: for a never-scraped team the history older than 90 days becomes unreachable, inside the 365-day ranking window, and the provider caps a response at 30 matches so a later full scrape cannot recover it. Rated P2 in review only because the watermark's consumers are manual-dispatch — but those are the same surface the activity filter benefits. Consider advancing only when the scraped window starts at or before the existing watermark, or keeping the re-probe clock in its own column.
+- **Noted**: 2026-08-27
+- **Update (2026-11-23)**: `drain_queue.py` and `scrape_games.py` no longer read `last_scraped_at` as a watermark: every scrape by the drainer, Clear Queue and `scrape_games.py` starts at the earlier of Aug 1 of the season and 90 days before the date it is for (`scrape_start_date` in `src/scrapers/gotsport.py`), so advancing `last_scraped_at` no longer hides older games. Still open: the scraper (not GotSport, which paginates) keeps only a team's 30 newest matches, so a team with more since the start loses the oldest. Owner decision (2026-11-23): no default scrape reads before that start, so a team's first scrape skips last season's games even inside the 365-day ranking window; `scrape_games.py --since-date` reaches further.
+- **Refs**: branch `fix/gotsport-scrape-window`

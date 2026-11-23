@@ -336,16 +336,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The rule is currently pasted byte-identically into `find_stale_teams`, `find_discovery_teams` and `find_topup_teams`, held together by a drift test. Sharing it as a scalar SQL function genuinely will not work — `inline_function()` refuses a body with `hasSubLinks` and the rule carries an `EXISTS`. A view does: `is_simple_subquery()` does not reject sublinks, so the qual is pulled up into each caller's `WHERE` and the plan is unchanged. Needs an explicit `REVOKE SELECT ... FROM anon, authenticated`, since Supabase's default privileges would otherwise expose it over PostgREST. Would retire three copies, most of the drift test, and the requirement that the block stay schema-qualified to suit whichever caller runs under `search_path = ''`.
 - **Noted**: 2026-08-27
 
-### process_missing_games advances last_scraped_at after a window-limited scrape
-
-- **ID**: IMP-132
-- **Status**: open
-- **Type**: investigate
-- **Category**: reliability
-- **Where**: `scripts/process_missing_games.py` (`scrape_games_for_date`, `_flush_scrape_log`), `scripts/drain_queue.py:687-700` (`scrape_dates_cache`)
-- **Why**: `teams.last_scraped_at` is not only the re-probe clock; it is the incremental watermark `drain_queue.py` and `scrape_games.py` pass as `since_date`, and `GotSportScraper.scrape_team_games` enforces it hard. But this path scrapes only `[game_date-90, game_date+90]`, and `game_date` is today or yesterday for essentially every request. Stamping `now()` therefore claims coverage the scrape did not have: for a never-scraped team the history older than 90 days becomes unreachable, inside the 365-day ranking window, and the provider caps a response at 30 matches so a later full scrape cannot recover it. Rated P2 in review only because the watermark's consumers are manual-dispatch — but those are the same surface the activity filter benefits. Consider advancing only when the scraped window starts at or before the existing watermark, or keeping the re-probe clock in its own column.
-- **Noted**: 2026-08-27
-
 ### Merging a double-import duplicate leaves the fixture recorded twice against the survivor
 
 - **ID**: IMP-137
@@ -2839,6 +2829,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `GotSportScraper.scrape_team_games`, `_parse_api_match` and `_repeat_day_match_ids` in `src/scrapers/gotsport.py`; `GameHistoryMatcher.generate_game_uid` in `src/models/game_matcher.py`; the past-dated no-score skip in `EnhancedETLPipeline._validate_and_dedup` in `src/etl/enhanced_pipeline.py`
 - **Why**: GotSport records a team's whole league schedule as 3-0s on a placeholder date, or a 3-0 weeks before kickoff, with no structured status field, and moves those matches between dates. Its free-text `description` sometimes gives the reason or a move (`Away team does not have enough players (ML)`, `9/20 rain out ER`; 85 of 2,366 matches in the 2026-11-09 sample), and `_parse_api_match` drops it, so it is a candidate signal the importer never sees. `scrape_team_games` keeps GotSport's match `id` only for same-day rematches, as a suffix after the date, and the uid is provider + date + team pair, so each move saves a new row and the old one stays (Supra United FC N1 B2012/13 Burciaga had 9 losses counted twice); a result GotSport later removes stays stored, because a past-dated unscored row is skipped at validation. `scripts/exclude_unplayed_forfeit_games.py` cleans the stored rows; nothing stops new ones. Finding the stored row by match id, whatever its date, is also the prevention the open entry "Stop a rescheduled GotSport game leaving its original-date fixture behind" defers, so the two share one fix. Two places in code say the `past=true` feed returns played games only, but past-dated unscored matches come back too (GotSport match 26961639): the comment above the request in `GotSportScraper.scrape_team_games` and the docstring of `scripts/exclude_rescheduled_fixture_leftovers.py`. Found 2026-11-09 on National 1 League event 54028.
 - **Noted**: 2026-11-09
+- **Update (2026-11-23)**: A re-dated real result is stored twice too, not only a 3-0 (reproduced offline by the peer review of `fix/gotsport-scrape-window`: same teams and 2-1 one day earlier gave a new insert candidate; not re-run here). Since that branch, the drainer, Clear Queue and manual scrapes all re-read from Aug 1, so a move anywhere in the season reaches the importer.
 
 ### Keep a team name's gender letter when the name cleanup rewrites its age token
 
@@ -3434,4 +3425,28 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: the `teams.provider_team_id` lookup in `frontend/app/api/scrape-missing-game/route.ts`; `scrape_team_id` and `get_gotsport_alias` in `scripts/process_missing_games.py`; `provider_findings` in `scripts/investigate_missing_game_requests.py` (flags multiple GotSport registrations only at `FUSED_REGISTRATION_THRESHOLD`, 3)
 - **Why**: Seen 2026-11-23 on a clicked team holding two approved GotSport aliases: the click's scrape read only the row's own id and found nothing new, while the team's latest game sits under the other id (the team is in the owner's private notes, kept out of this public file). The drainer reads `team_alias_map` only when the row's provider has no scraper or its id is excluded, so a game under the second registration is never fetched, and the email does not say so. Decide between scraping every approved GotSport alias and flagging two registrations in the report; check first whether the second id is another squad (the `splitting-fused-provider-ids` skill), since scraping a fused row's other id pulls in that squad's games.
+- **Noted**: 2026-11-23
+
+### Keep a hidden game hidden when it is re-sent under merged or team-page ids
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/etl/enhanced_pipeline.py` (`_check_duplicates_by_master_ids`, the composite-key check), the `trg_propagate_game_exclusion` trigger
+- **Why**: Reported by the peer review of `fix/gotsport-scrape-window` (2026-11-23), unverified here: a game excluded under an event registration id and a later-merged team id can be inserted again when the team page re-sends it under the team-page provider ids and the survivor's master id, because the composite key uses provider ids and the master-level check and exclusion propagation compare the excluded row's original ids.
+- **Noted**: 2026-11-23
+
+### Write a corrected GotSport score's result letter from the stored sides
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/etl/game_corrections.py` (`apply_score_correction`), the `apply_game_correction` RPC
+- **Why**: Reported by the peer review of `fix/gotsport-scrape-window` (2026-11-23), unverified here: a score correction passes the scraping team's `result`, so the same corrected game is stored as W from the home team's page and L from the away team's page. Derive the letter from the corrected scores on the stored home/away sides so scrape order cannot decide it.
+- **Noted**: 2026-11-23
+
+### Compare UTC match dates before GotSport's early-exit break
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/scrapers/gotsport.py` (`GotSportScraper.scrape_team_games`, the newest-first parse loop)
+- **Why**: The loop sorts matches by the raw `match_date` string and breaks at the first one whose UTC date is before `since_date`, so a match with a local offset that sorts ahead but falls on the previous UTC day ends the scan early. The peer review of `fix/gotsport-scrape-window` (2026-11-23) showed `2026-08-01T01:00:00+03:00` beside `2026-08-01T00:30:00Z` with an Aug 1 cutoff returning zero games. Sort on `_utc_match_date`, or skip the out-of-window match and continue.
 - **Noted**: 2026-11-23
