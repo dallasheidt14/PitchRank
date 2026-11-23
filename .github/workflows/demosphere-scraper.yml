@@ -38,6 +38,15 @@ jobs:
   scrape-demosphere:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - site: '80738'
+            league: NCSL
+          - site: '74274'
+            league: North Puget Sound League
 
     steps:
       - name: Checkout repository
@@ -55,9 +64,10 @@ jobs:
           pip install -r requirements.txt
           mkdir -p data/raw/demosphere
 
-      - name: Scrape NCSL, register teams, import games
+      - name: Scrape ${{ matrix.league }}, register teams, import games
         if: ${{ env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
+          SITE: ${{ matrix.site }}
           PYTHONPATH: ${{ github.workspace }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -72,7 +82,7 @@ jobs:
           # The whole season to date on every run, not one week: a game held while its team waits
           # in the review queue imports on the first run after the review, and the importer skips
           # games it already holds.
-          ARGS=(--output-dir data/raw/demosphere)
+          ARGS=(--site-id "${SITE}" --output-dir data/raw/demosphere)
           if [ -n "${SEASON_INPUT:-}" ]; then
             ARGS+=(--season "${SEASON_INPUT}")
           fi
@@ -82,10 +92,10 @@ jobs:
           if [ "${DRY_RUN_INPUT:-false}" != "true" ]; then
             ARGS+=(--execute)
           fi
-          python scripts/import_demosphere.py "${ARGS[@]}" | tee data/raw/demosphere/run.log
+          python scripts/import_demosphere.py "${ARGS[@]}" | tee "data/raw/demosphere/run-${SITE}.log"
 
           # A run that read no scored games in season is a broken scrape, not a quiet week.
-          PLAYED=$(grep -oE 'Games scraped: [0-9]+ \([0-9]+ played\)' data/raw/demosphere/run.log | grep -oE '[0-9]+ played' | grep -oE '[0-9]+' || echo 0)
+          PLAYED=$(grep -oE 'Games scraped: [0-9]+ \([0-9]+ played\)' "data/raw/demosphere/run-${SITE}.log" | grep -oE '[0-9]+ played' | grep -oE '[0-9]+' || echo 0)
           MONTH=$(date -u +%m)
           if [ "${PLAYED}" = "0" ] && [[ "${MONTH}" =~ ^(10|11|04|05)$ ]]; then
             echo "::error::Demosphere run read zero scored games in season"
@@ -94,12 +104,15 @@ jobs:
 
       - name: Summarize the run
         if: always()
+        env:
+          SITE: ${{ matrix.site }}
+          LEAGUE: ${{ matrix.league }}
         run: |
-          if [ -f data/raw/demosphere/run.log ]; then
+          if [ -f "data/raw/demosphere/run-${SITE}.log" ]; then
             {
-              echo '### NCSL (Demosphere) import'
+              echo "### ${LEAGUE} (Demosphere) import"
               echo '```'
-              sed -n '/(Demosphere)/,/^└/p' data/raw/demosphere/run.log
+              sed -n '/(Demosphere)/,/^└/p' "data/raw/demosphere/run-${SITE}.log"
               echo '```'
             } >> "${GITHUB_STEP_SUMMARY}"
           fi
@@ -108,7 +121,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: demosphere-${{ github.run_id }}
+          name: demosphere-${{ matrix.site }}-${{ github.run_id }}
           path: data/raw/demosphere/
           if-no-files-found: ignore
           retention-days: 30
