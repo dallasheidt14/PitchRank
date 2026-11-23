@@ -2330,10 +2330,9 @@ def test_the_merges_cap_keeps_the_cross_provider_pairs_retiring_the_fewest_games
 
 
 def test_the_shipped_caps_leave_every_stage_uncapped_but_the_automatic_merges():
-    # The owner's calls: a week's run shows everything it proposes and reviews every change, but merges at most 300
-    # on its own (2026-10-31), raised only after four clean weeks of spot-checks and post-Monday checks.
+    # The owner's calls; running-team-cleanup records the automatic-merge cap and when it may double.
     assert [LOAD_CAPS(stage=stage) for stage in ("clubs", "states")] == [pages.Caps(100000, 100000, 100000)] * 2
-    assert LOAD_CAPS(stage="merges") == pages.Caps(100000, 300, 100000)
+    assert LOAD_CAPS(stage="merges") == pages.Caps(100000, 600, 100000)
     assert LOAD_CAPS(stage="ages") == LOAD_CAPS() == pages.Caps(100000, 100000)
 
 

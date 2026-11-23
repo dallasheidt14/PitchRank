@@ -3,17 +3,26 @@ name: Investigate Missing-Game Requests
 on:
   schedule:
     # Every 3 hours, 50 minutes after each 3-hour window closes, so the queue has scraped
-    # the window's last clicks. A run more than ~2 hours late reports the next window instead;
-    # re-run a skipped one by hand with its end time.
+    # the window's last clicks. The minute must stay at least REPORT_DELAY in
+    # scripts/investigate_missing_game_requests.py, or every run reports a window late.
+    # Each run reports every click no earlier email covered, so a run GitHub skips leaves
+    # its clicks for the next run that fires instead of losing them.
     - cron: '50 */3 * * *'
   workflow_dispatch:
     inputs:
       end:
-        description: 'End of the 3-hour window, YYYY-MM-DDTHH:MM Arizona time (blank = the latest)'
+        description: 'Re-send the 3-hour window ending YYYY-MM-DDTHH:MM Arizona time (blank = every click not yet reported)'
         required: false
         default: ''
         type: string
   # No dry-run input: a dry run prints the report, and this repo's Actions logs are public.
+
+# Two runs at once would both email the clicks neither has stamped yet. Without queue: max,
+# GitHub keeps one waiting run and cancels it when the next arrives, which would drop a re-send.
+concurrency:
+  group: investigate-missing-game-requests
+  cancel-in-progress: false
+  queue: max
 
 env:
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

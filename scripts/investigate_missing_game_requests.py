@@ -4,8 +4,8 @@
 A click on "find missing game" queues a GotSport scrape of the team
 (frontend/app/api/scrape-missing-game). The scrape is often not the fix: the game can sit on
 another row of the same squad, the team can be filed on the wrong age board, or the game can
-come from a provider the GotSport scrape never reads. For every team clicked in one 3-hour
-window this reports:
+come from a provider the GotSport scrape never reads. For every team with a click no email has
+covered yet (or, with --end, a click in one window) this reports:
 
   1. the scrape: how each request ended, and what it brought in that was not on record before:
      games first saved while it ran, and games already on record that it gave a score
@@ -16,16 +16,18 @@ window this reports:
   4. providers: whether the team has a GotSport link the scrape can use, and, while the requested
      game is still missing, the other providers it is linked to, with how each is refreshed
 
-Report only: it reads the database and sends at most one email to ALERT_EMAIL. Each finding names a
-next step. A live run logs counts only, because Actions logs are public and the report names the
-teams subscribers asked about.
+Report only: it changes no team or game. It sends at most one email to ALERT_EMAIL and then stamps
+reported_at on the clicks it covered. Each finding names a next step. A live run logs counts only,
+because Actions logs are public and the report names the teams subscribers asked about.
 
-Clicks come from missing_game_clicks; scrape_requests cannot say which teams were clicked.
+Clicks come from missing_game_clicks; scrape_requests cannot say which teams were clicked. Without
+--end, a run takes every click with no reported_at from windows that closed at least REPORT_DELAY
+ago, so a skipped run delays its clicks rather than losing them.
 
 Usage:
-    python scripts/investigate_missing_game_requests.py                    # the latest 3-hour window
-    python scripts/investigate_missing_game_requests.py --end 2026-11-16T11:00
-    python scripts/investigate_missing_game_requests.py --dry-run          # print, send nothing
+    python scripts/investigate_missing_game_requests.py                    # every click not yet reported
+    python scripts/investigate_missing_game_requests.py --end 2026-11-16T11:00   # re-send one window
+    python scripts/investigate_missing_game_requests.py --dry-run          # print, send and stamp nothing
 """
 
 from __future__ import annotations
@@ -85,6 +87,9 @@ ARIZONA = timezone(timedelta(hours=-7))
 
 # Windows end on the UTC hours divisible by this.
 WINDOW_HOURS = 3
+# How long the queue gets to scrape a window's last clicks before the window is reported. The
+# workflow's cron minute must be at least this.
+REPORT_DELAY = timedelta(minutes=50)
 
 CLICK_COLS = "id,team_id_master,game_date,clicked_at,scrape_request_id"
 REQUEST_COLS = "id,status,processed_at,completed_at,error_message"
@@ -213,8 +218,6 @@ def window_label(start: datetime, end: datetime) -> str:
 
 
 def fetch_clicks(sb, start: datetime, end: datetime) -> list[dict]:
-    """The window's clicks, oldest first, each with the queue request it landed on under
-    `request` (None when the queue refused the click, or the request is gone)."""
     clicks = page(
         lambda: (
             sb.table("missing_game_clicks")
@@ -224,6 +227,25 @@ def fetch_clicks(sb, start: datetime, end: datetime) -> list[dict]:
         ),
         "id",
     )
+    return attach_requests(sb, clicks)
+
+
+def fetch_unreported_clicks(sb, end: datetime) -> list[dict]:
+    clicks = page(
+        lambda: (
+            sb.table("missing_game_clicks")
+            .select(CLICK_COLS)
+            .is_("reported_at", "null")
+            .lt("clicked_at", end.isoformat())
+        ),
+        "id",
+    )
+    return attach_requests(sb, clicks)
+
+
+def attach_requests(sb, clicks: list[dict]) -> list[dict]:
+    """The clicks oldest first, each with the queue request it landed on under `request` (None
+    when the queue refused the click, or the request is gone)."""
     found = {}
     for batch in batched(sorted({c["scrape_request_id"] for c in clicks if c["scrape_request_id"]})):
         for r in sb.table("scrape_requests").select(REQUEST_COLS).in_("id", batch).execute().data or []:
@@ -619,8 +641,7 @@ def investigate_team(sb, team, clicks, *, canonical, merge_map, keep_index, prov
     )
 
 
-def investigate(sb, start: datetime, end: datetime) -> tuple[list[TeamReport], list[str]]:
-    clicks = fetch_clicks(sb, start, end)
+def investigate(sb, clicks: list[dict]) -> tuple[list[TeamReport], list[str]]:
     if not clicks:
         return [], []
     merge_map = load_merge_map(sb)
@@ -765,34 +786,60 @@ def render_html(reports: list[TeamReport], caveats: list[str], label: str) -> st
     return "\n".join(parts)
 
 
+def mark_reported(sb, clicks: list[dict]) -> int:
+    """Stamp the emailed clicks so no later scheduled run emails them again; a click already
+    stamped keeps the time it was first reported. Returns how many were stamped."""
+    now = datetime.now(timezone.utc).isoformat()
+    stamped = 0
+    for batch in batched(sorted(c["id"] for c in clicks)):
+        rows = (
+            sb.table("missing_game_clicks")
+            .update({"reported_at": now})
+            .in_("id", batch)
+            .is_("reported_at", "null")
+            .execute()
+            .data
+        )
+        stamped += len(rows or [])
+    return stamped
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
         "--end",
         type=datetime.fromisoformat,
-        help="end of the 3-hour window, Arizona time unless an offset is given (default: the latest boundary)",
+        help="re-send the 3-hour window ending here, Arizona time unless an offset is given "
+        "(default: every click not yet reported)",
     )
-    ap.add_argument("--dry-run", action="store_true", help="print the report and send no email")
+    ap.add_argument("--dry-run", action="store_true", help="print the report; send no email and stamp no click")
     args = ap.parse_args()
 
+    sb = get_client()
     if args.end is None:
-        end = window_end(datetime.now(timezone.utc))
+        end = window_end(datetime.now(timezone.utc) - REPORT_DELAY)
+        clicks = fetch_unreported_clicks(sb, end)
+        oldest = datetime.fromisoformat(clicks[0]["clicked_at"]) if clicks else end - timedelta(hours=WINDOW_HOURS)
+        # The start of the oldest click's window.
+        start = window_end(oldest)
     else:
         end = args.end if args.end.tzinfo else args.end.replace(tzinfo=ARIZONA)
-    start = end - timedelta(hours=WINDOW_HOURS)
+        start = end - timedelta(hours=WINDOW_HOURS)
+        clicks = fetch_clicks(sb, start, end)
     label = window_label(start, end)
-    reports, caveats = investigate(get_client(), start, end)
+    reports, caveats = investigate(sb, clicks)
     if args.dry_run:
         print(render_text(reports, caveats, label))
         logger.info(f"Dry run: no email sent ({subject(reports, label)})")
         return 0
-    if not reports:
+    if not clicks:
         logger.info(f"No clicks in {label}, so no email was sent.")
         return 0
     if not send_email(ALERT_EMAIL, subject(reports, label), render_html(reports, caveats, label)):
         logger.error("The report could not be emailed")
         return 1
-    logger.info(f"Report on {len(reports)} team(s) from {label} emailed to {ALERT_EMAIL}")
+    stamped = mark_reported(sb, clicks)
+    logger.info(f"Report on {len(reports)} team(s) from {label} emailed to {ALERT_EMAIL}; {stamped} click(s) stamped")
     return 0
 
 

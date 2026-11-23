@@ -1,4 +1,4 @@
-"""Pin the parts of the missing_game_clicks migration that fail silently.
+"""Pin the parts of the missing_game_clicks migrations that fail silently.
 
 ci.yml applies no migrations to this table, so these text assertions stand in for execution.
 They cover the shapes whose loss produces no error anywhere:
@@ -8,7 +8,9 @@ They cover the shapes whose loss produces no error anywhere:
   - the REVOKE going missing or naming one role, since RLS does not cover the TRUNCATE in that
     grant;
   - a GRANT to a browser role appearing later;
-  - a column the route writes or the investigation reads changing shape.
+  - a column the route writes or the investigation reads changing shape;
+  - reported_at gaining a default or losing its backfill cutoff, either of which marks clicks
+    reported that no email covered.
 
 Statements resolve by name across every migration. Not detected: a grant issued from dynamic SQL
 (`EXECUTE format(...)` inside a DO block) and a browser role granted membership in `service_role`.
@@ -33,6 +35,7 @@ ROUTE = ROOT / "frontend" / "app" / "api" / "scrape-missing-game" / "route.ts"
 
 TABLE = "missing_game_clicks"
 MIGRATION = "20261117120000_add_missing_game_clicks.sql"
+REPORTED_MIGRATION = "20261123120000_add_missing_game_clicks_reported_at.sql"
 
 BROWSER_ROLES = {"public", "anon", "authenticated"}
 
@@ -45,13 +48,20 @@ COLUMNS = {
     "game_date": "DATE NOT NULL",
     "clicked_at": "TIMESTAMPTZ NOT NULL DEFAULT NOW()",
     "scrape_request_id": "UUID",
+    "reported_at": "TIMESTAMPTZ",
 }
 
 
 def _columns() -> dict[str, str]:
+    """The columns its CREATE TABLE and every ADD COLUMN declare; the guards below keep any other
+    ALTER out."""
     create = _newest_statement(rf"(?is)create\s+table\s+(?:if\s+not\s+exists\s+)?{TABLE_REF}\s*\(")
     body = create[create.index("(") + 1 : create.rindex(")")]
-    return {part.split(None, 1)[0]: part.split(None, 1)[1] for part in (p.strip() for p in body.split(",")) if part}
+    columns = {part.split(None, 1)[0]: part.split(None, 1)[1] for part in (p.strip() for p in body.split(",")) if part}
+    added = rf"(?is)alter\s+table\s+{TABLE_REF}\s+add\s+column\s+(?:if\s+not\s+exists\s+)?(\w+)\s+([^;]+);"
+    for match in re.finditer(added, _tree()):
+        columns[match.group(1)] = " ".join(match.group(2).split())
+    return columns
 
 
 def test_the_table_has_exactly_the_columns_the_route_writes_and_the_investigation_reads():
@@ -97,6 +107,20 @@ def test_the_migration_holds_only_the_statements_this_guard_reads():
         'COMMENT ON POLICY "MISSING_GAME_CLICKS_SERVICE_ROLE_ALL" ON',
         "REVOKE ALL ON PUBLIC.MISSING_GAME_CLICKS FROM",
     ], kinds
+
+
+def test_reported_at_is_added_nullable_and_stamped_only_on_clicks_already_emailed():
+    """The report emails every click whose reported_at is NULL. A default would stamp every new
+    click as it is written, and a backfill without its cutoff would stamp clicks no email covered;
+    either way those clicks are never emailed."""
+    sql = _executable((ROOT / "supabase" / "migrations" / REPORTED_MIGRATION).read_text(encoding="utf-8"))
+    statements = [_flat(stmt) for stmt in sql.split(";") if stmt.strip()]
+
+    assert statements == [
+        "ALTER TABLE missing_game_clicks ADD COLUMN IF NOT EXISTS reported_at TIMESTAMPTZ",
+        "UPDATE missing_game_clicks SET reported_at = NOW() "
+        "WHERE reported_at IS NULL AND clicked_at < '2026-11-23 15:00:00+00'",
+    ], statements
 
 
 def test_row_level_security_is_enabled():
@@ -150,13 +174,13 @@ def test_no_statement_in_any_migration_reopens_the_table():
 
 
 def test_nothing_later_touches_the_table_behind_these_guards():
-    """These guards read migration text, not the live table. Fail as soon as a second file
+    """These guards read migration text, not the live table. Fail as soon as a further file
     mentions the table, so whoever writes it widens these guards deliberately."""
     touching = [
         path.name for path in _migrations() if re.search(rf"(?i){TABLE}", _executable(path.read_text(encoding="utf-8")))
     ]
 
-    assert touching == [MIGRATION], f"{TABLE} is referenced by more than its own migration: {touching}"
+    assert touching == [MIGRATION, REPORTED_MIGRATION], f"{TABLE} is referenced by an unguarded migration: {touching}"
 
 
 def test_no_later_schema_wide_grant_reaches_a_browser_role():

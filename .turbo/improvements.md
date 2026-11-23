@@ -3426,3 +3426,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_undeclared_encoding` in `scripts/import_demosphere.py`; `_encoding` in `scripts/import_tourneycentral_event.py` (Heartland reads pages through its `_fetch`); the `_get` that sets `response.encoding = "utf-8"` in `scripts/import_yssl.py`, `scripts/import_athletes2events_event.py` and `scripts/import_soccereventsgroup_event.py`
 - **Why**: Three rules coexist. Demosphere reads UTF-8 when the bytes are UTF-8, else windows-1252. Tourney Central reads the header charset, then a `<meta charset>`, else UTF-8. The other three force UTF-8. A page that declares no charset and carries a windows-1252 byte (the North Puget Sound League's pages put a `\xa0` inside team names, seen 2026-11-23) decodes to U+FFFD in the force-UTF-8 drivers and in Tourney Central's fallback, and the garbled name is stored on any team the run creates. Left out of the NPSL change as out of scope; no garbled name has been seen from the other drivers yet. One shared helper would keep a fix from landing in one driver only.
 - **Noted**: 2026-11-23
+
+### Show which spot-check holds the cleanup page's clean-weeks count down
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `cleanWeeks` in `frontend/lib/mission-control/cleanup.ts`; the verdict buttons' `onClick` and the "Clean weeks in a row" line in `frontend/components/mission-control/cleanup/SpotCheckReview.tsx`
+- **Why**: On 2026-11-22 the page read "1 of 4" after three judged weeks: one Nov 11 sample had lost its verdict, because clicking the verdict already selected sets it back to null, and `cleanWeeks` ends the count at any older week with an unjudged sample. The page names neither, so finding the cause took a database query. Name the week and sample that stop the count, and consider making a re-click not clear the verdict silently.
+- **Noted**: 2026-11-22
+
+### Read every GotSport registration a "find missing game" click could be about
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the `teams.provider_team_id` lookup in `frontend/app/api/scrape-missing-game/route.ts`; `scrape_team_id` and `get_gotsport_alias` in `scripts/process_missing_games.py`; `provider_findings` in `scripts/investigate_missing_game_requests.py` (flags multiple GotSport registrations only at `FUSED_REGISTRATION_THRESHOLD`, 3)
+- **Why**: Seen 2026-11-23 on a clicked team holding two approved GotSport aliases: the click's scrape read only the row's own id and found nothing new, while the team's latest game sits under the other id (the team is in the owner's private notes, kept out of this public file). The drainer reads `team_alias_map` only when the row's provider has no scraper or its id is excluded, so a game under the second registration is never fetched, and the email does not say so. Decide between scraping every approved GotSport alias and flagging two registrations in the report; check first whether the second id is another squad (the `splitting-fused-provider-ids` skill), since scraping a fused row's other id pulls in that squad's games.
+- **Noted**: 2026-11-23

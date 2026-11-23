@@ -168,8 +168,14 @@ card saying the reviewers cleared it and why the page held it;
 **reject** to the automatic lane as Keep separate, which both scans honour until it lapses (the cards
 table holds it as Apply, the card's `keep_separate` saying what is applied); **hold** to a card giving
 the reviewers' reason. A pair past the review cap waits for next week's. The automatic lane takes at most
-`page_caps.merges.auto` (300; owner, 2026-10-31: double it only after four straight weeks whose spot-checked
-merges were all marked right, the count the page's **Spot-check** shows). A settled pair past that cap is a card
+`page_caps.merges.auto` (600), doubled only after four straight weeks whose spot-checked merges were all marked
+right, the count the page's **Spot-check** shows (owner, 2026-10-31); it was raised from 300 before that count reached
+four, and the count does not start over at a raise, so the next doubling waits only for it to reach four (owner,
+2026-11-22). When the count reads lower than the weeks the owner has judged, find the unmarked sample first
+(`team_cleanup_spot_checks` rows with a null verdict, by run): clicking a verdict already selected takes it back, and
+a week left with one unjudged is not counted, and ends the count unless it is the newest. Before proposing a raise,
+compare a run's `capped` cards (in `team_cleanup_cards.card`) with its automatic lane: the cap applies only to settled
+pairs, so it does not bind in a week whose cards are all reviewer holds. A settled pair past that cap is a card
 carrying the reviewers' verdict (`capped`) and swap, and **Merge all N the reviewers cleared** decides every
 undecided cleared one in one click, each the way the reviewers turned it. On a card,
 **Merge them** applies it; **Keep separate** records the decision; **Not sure** brings it back next
