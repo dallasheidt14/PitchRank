@@ -3427,3 +3427,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `cleanWeeks` in `frontend/lib/mission-control/cleanup.ts`; the verdict buttons' `onClick` and the "Clean weeks in a row" line in `frontend/components/mission-control/cleanup/SpotCheckReview.tsx`
 - **Why**: On 2026-11-22 the page read "1 of 4" after three judged weeks: one Nov 11 sample had lost its verdict, because clicking the verdict already selected sets it back to null, and `cleanWeeks` ends the count at any older week with an unjudged sample. The page names neither, so finding the cause took a database query. Name the week and sample that stop the count, and consider making a re-click not clear the verdict silently.
 - **Noted**: 2026-11-22
+
+### Read every GotSport registration a "find missing game" click could be about
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the `teams.provider_team_id` lookup in `frontend/app/api/scrape-missing-game/route.ts`; `scrape_team_id` and `get_gotsport_alias` in `scripts/process_missing_games.py`; `provider_findings` in `scripts/investigate_missing_game_requests.py` (flags multiple GotSport registrations only at `FUSED_REGISTRATION_THRESHOLD`, 3)
+- **Why**: Seen 2026-11-23 on a clicked team holding two approved GotSport aliases: the click's scrape read only the row's own id and found nothing new, while the team's latest game sits under the other id (the team is in the owner's private notes, kept out of this public file). The drainer reads `team_alias_map` only when the row's provider has no scraper or its id is excluded, so a game under the second registration is never fetched, and the email does not say so. Decide between scraping every approved GotSport alias and flagging two registrations in the report; check first whether the second id is another squad (the `splitting-fused-provider-ids` skill), since scraping a fused row's other id pulls in that squad's games.
+- **Noted**: 2026-11-23
