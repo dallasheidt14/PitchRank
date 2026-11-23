@@ -35,7 +35,7 @@ AGE_DERIVING_SCRIPTS = (
     # Writes teams with the age Kitman labels them for this season; only with --execute.
     "link_mlsnext_kitman_teams.py",
     "import_yssl.py",
-    # Writes teams with the age the NCSL team names state for this season; only with --execute.
+    # Writes teams with the age a Demosphere team's name, or else its division, states; only with --execute.
     "import_demosphere.py",
     # Writes teams with the age a Heartland team name, or its one-cohort division, states; only with --execute.
     "import_heartland.py",

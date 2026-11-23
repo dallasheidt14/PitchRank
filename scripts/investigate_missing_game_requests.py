@@ -139,7 +139,7 @@ PROVIDER_REFRESH = {
     "affinity_hi": "Affinity HI: Mondays, last 7 days only (hi-scraper.yml)",
     "affinity_ga": "Affinity GA: Mondays, last 7 days only (ga-scraper.yml)",
     "yssl": "YSSL: Mondays (yssl-scraper.yml)",
-    "demosphere": "NCSL (Demosphere): Mondays (demosphere-scraper.yml)",
+    "demosphere": "NCSL and North Puget Sound League (Demosphere): Mondays (demosphere-scraper.yml)",
     "heartland": "Heartland: Mondays (heartland-scraper.yml)",
     "athletes2events": "Athletes2Events: per event, by hand (import_athletes2events_event.py)",
     "tourneycentral": "Tourney Central: per tournament, by hand (import_tourneycentral_event.py)",

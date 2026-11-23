@@ -2,8 +2,8 @@
 """Register a Demosphere league's teams and import its scored games.
 
 Demosphere ("Elements", elements.demosphere.com) hosts league sites keyed by a numeric
-site id; NCSL (Northern Virginia, with some DC and Maryland clubs) is 80738. Three public, server-rendered pages feed
-this script:
+site id; NCSL (Northern Virginia, with some DC and Maryland clubs) is 80738 and the North Puget
+Sound League (Washington) is 74274. Three public, server-rendered pages feed this script:
 
 - ``teams/club/<club>.html`` names the club (``h1.dii-hdr-cb``) and links each of its
   teams as ``teams/<season key>/<team key>-<division key>/TEAM.html``.
@@ -11,8 +11,9 @@ this script:
   season's links on every club page.
 - ``schedules/<Season>/<division key>.html`` lists every game of a division: one
   ``tr.sch-main-gm`` per game carrying ``data-gamekey``, and per side the team's
-  ``data-tmkey``, its club's ``data-cbkey``, its team code and its full name. A played
-  game shows ``2-1`` and an unplayed one ``vs``.
+  ``data-tmkey``, its club's ``data-cbkey`` and its full name, which NCSL opens with a team
+  code. A played game shows ``2-1`` and an unplayed one ``vs``. The division name is in a
+  ``var tgname`` on NCSL and only in ``td.hdr`` on the North Puget Sound League.
 
 Divisions are found by walking outward from a seed club: each division page names the
 clubs of its teams, and each club page names its divisions. The ``/scripts/`` paths
@@ -216,6 +217,7 @@ class League:
     association_clubs: Tuple[str, ...] = ()
     states: Tuple[str, ...] = ()
     club_overrides: Dict[str, Tuple[str, Optional[str]]] = field(default_factory=dict, compare=False)
+    team_codes: bool = True
 
 
 # The club a listed name is filed under, and the state it is in where that differs from the league's:
@@ -241,8 +243,32 @@ NCSL_CLUBS: Dict[str, Tuple[str, Optional[str]]] = {
     "NPC Futbol and Futsal": ("NPC Futbol & Futsal", "VA"),
 }
 
+# The club a North Puget Sound League listed name is filed under: decided by the owner on 2026-11-22. All are in WA.
+NPSL_CLUBS: Dict[str, Tuple[str, Optional[str]]] = {
+    "Cascade Foothills Soccer Club": ("Cascade Foothills SC", None),
+    "Crossfire Select": ("Crossfire Select Soccer Club", None),
+    "Fife-Milton-Edgewood Soccer Club": ("Fife Milton Edgewood JSC", None),
+    "Jefferson County Soccer Club": ("Jefferson County SC", None),
+    "Norpoint FC": ("Norpoint SC", None),
+    "North Kitsap": ("North Kitsap Soccer Club", None),
+    "North Whidbey": ("North Whidbey SC", None),
+    "Sky River": ("Sky River SC", None),
+    "South Tacoma United": ("South Tacoma United Soccer Club", None),
+    "South Whidbey": ("South Whidbey Youth SC", None),
+    "University Place Soccer Club": ("University Place SC", None),
+    "Storm King FC": ("Storm King SC", None),
+    "Washington Rush Select": ("Washington Rush", None),
+    "PacNW": ("Pacific Northwest SC", None),
+    "Sequim FC": ("Sequim Junior Soccer Club", None),
+    "South Kitsap United": ("South Kitsap Soccer Club", None),
+    "Stanwood Spartan FC": ("Stanwood Camano Youth Soccer Club", None),
+    "Irish": ("Jr. Irish Soccer Club", None),
+    "Highline Soccer Club": ("Highline Soccer Association (HSA)", None),
+}
+
 LEAGUES: Dict[str, League] = {
-    "80738": League("NCSL", "VA", ("15599479",), ("15599479",), ("VA", "MD", "DC", "WV", "DE"), NCSL_CLUBS)
+    "80738": League("NCSL", "VA", ("15599479",), ("15599479",), ("VA", "MD", "DC", "WV", "DE"), NCSL_CLUBS),
+    "74274": League("North Puget Sound League", "WA", ("77067129",), (), ("WA",), NPSL_CLUBS, team_codes=False),
 }
 
 
@@ -276,6 +302,7 @@ class DivisionPage:
     games: List[RawGame] = field(default_factory=list)
     forfeits: List[str] = field(default_factory=list)
     problems: List[str] = field(default_factory=list)
+    no_schedule_page: bool = False
 
 
 @dataclass
@@ -300,13 +327,25 @@ class TeamRow:
 class ScrapeFetchError(RuntimeError):
     """A page could not be read.
 
-    Raised rather than returned so the run fails: a division whose page did not load
-    must not read as a division with no games.
+    Raised rather than returned so the run fails: a division page that failed to load must not read
+    as a division with no games. A page the site does not have is a :class:`PageNotFoundError`,
+    which the walk records on a division instead.
     """
 
 
 class SeasonNotListedError(ScrapeFetchError):
     """The seed club's schedule page links no division of the requested season."""
+
+
+class PageNotFoundError(ScrapeFetchError):
+    """The site has no page at the address: HTTP 404, or the 300 or 301 its spelling corrector answers instead.
+
+    A club page can list a team in a division that has no schedule page, which is a division with
+    no games rather than a page that failed to load.
+    """
+
+
+_NO_PAGE_STATUSES = frozenset({300, 301, 404})
 
 
 # ── Fetching ───────────────────────────────────────────────────────────────────
@@ -322,14 +361,31 @@ def make_session() -> requests.Session:
 
 def _get(session: requests.Session, url: str) -> requests.Response:
     try:
-        response = session.get(url, timeout=60)
+        # The spelling corrector 301s a missing division to its near-named neighbour, whose games
+        # would then be read twice.
+        response = session.get(url, timeout=60, allow_redirects=False)
     except requests.RequestException as e:
         raise ScrapeFetchError(f"request failed for {url}: {e}") from e
+    if response.status_code in _NO_PAGE_STATUSES:
+        raise PageNotFoundError(f"HTTP {response.status_code} for {url}")
     if response.status_code != 200:
         raise ScrapeFetchError(f"HTTP {response.status_code} for {url}")
     if "charset" not in str(response.headers.get("content-type", "")).lower():
-        response.encoding = "utf-8"
+        response.encoding = _undeclared_encoding(response.content)
     return response
+
+
+def _undeclared_encoding(content: bytes) -> str:
+    """UTF-8 when the page's bytes are UTF-8, else windows-1252, as a browser reads it.
+
+    North Puget Sound League pages declare no charset and carry a windows-1252 non-breaking
+    space inside some team names (``CFSC GU11\\xa0Torgison``), which UTF-8 reads as U+FFFD.
+    """
+    try:
+        content.decode("utf-8")
+    except UnicodeDecodeError:
+        return "cp1252"
+    return "utf-8"
 
 
 # ── Parsing ────────────────────────────────────────────────────────────────────
@@ -353,13 +409,13 @@ def season_key(html: str) -> Optional[str]:
     return keys.most_common(1)[0][0] if keys else None
 
 
-def _team_stub(cell, division_name: str) -> Optional[TeamStub]:
+def _team_stub(cell, division_name: str, team_codes: bool) -> Optional[TeamStub]:
     words = _text(cell).split(" ", 1)
     team_key = cell.get("data-tmkey", "")
     club_key = cell.get("data-cbkey", "")
     if not _KEY.fullmatch(team_key) or (club_key and not _KEY.fullmatch(club_key)) or not words[0]:
         return None
-    has_code = bool(_TEAM_CODE.match(words[0]))
+    has_code = team_codes and bool(_TEAM_CODE.match(words[0]))
     name = words[1] if has_code and len(words) > 1 else " ".join(words)
     return TeamStub(
         team_key=team_key,
@@ -370,11 +426,23 @@ def _team_stub(cell, division_name: str) -> Optional[TeamStub]:
     )
 
 
-def parse_division_page(html: str, division_key: str, source_url: str) -> DivisionPage:
-    """Every team and every game of a division page; an unplayed game keeps ``None`` scores."""
+def _is_empty_slot(row, home, away) -> bool:
+    """Both team cells present but blank (no key, no name), and no score: a placeholder, not a game."""
+    return (
+        all(cell is not None and not cell.get("data-tmkey") and not _text(cell) for cell in (home, away))
+        and _text(row.select_one("td.sch-main-sc")).lower() in _UNPLAYED
+    )
+
+
+def parse_division_page(html: str, division_key: str, source_url: str, team_codes: bool = True) -> DivisionPage:
+    """Every team and every game of a division page; an unplayed game keeps ``None`` scores.
+
+    A team name's first word is read as a team code only where the league writes one, so a name
+    opening with an age (``B10 Blue``) keeps it.
+    """
     name_match = _DIVISION_NAME.search(html)
-    page = DivisionPage(name=_clean_name(name_match.group(1)) if name_match else "")
     soup = BeautifulSoup(html, "lxml")
+    page = DivisionPage(name=_clean_name(name_match.group(1)) if name_match else _text(soup.select_one("td.hdr")))
     day: Optional[date] = None
     unscheduled = False
     for row in soup.select("table#tblListGames2 tr"):
@@ -390,8 +458,10 @@ def parse_division_page(html: str, division_key: str, source_url: str) -> Divisi
             continue
         home = row.select_one("td.schedtm1")
         away = row.select_one("td.schedtm2")
-        home_stub = _team_stub(home, page.name) if home is not None else None
-        away_stub = _team_stub(away, page.name) if away is not None else None
+        if _is_empty_slot(row, home, away):
+            continue
+        home_stub = _team_stub(home, page.name, team_codes) if home is not None else None
+        away_stub = _team_stub(away, page.name, team_codes) if away is not None else None
         game_key = row.get("data-gamekey", "")
         if not (home_stub and away_stub and _KEY.fullmatch(game_key)) or (day is None and not unscheduled):
             page.problems.append(f"{division_key}: unreadable game row {game_key or _text(row)[:40]!r}")
@@ -421,8 +491,10 @@ def parse_division_page(html: str, division_key: str, source_url: str) -> Divisi
                 forfeit=forfeit,
             )
         )
-    if soup.select_one("table#tblListGames2") is None and not name_match:
+    if soup.select_one("table#tblListGames2") is None and not page.name:
         page.problems.append(f"{division_key}: no schedule table or division name in the page")
+    elif not page.name:
+        page.problems.append(f"{division_key}: no division name in the page, so no division age or gender")
     return page
 
 
@@ -436,6 +508,7 @@ def collect_league(
     seed_clubs: List[str],
     pause: Callable[[], None] = lambda: None,
     max_divisions: Optional[int] = None,
+    team_codes: bool = True,
 ) -> Tuple[Dict[str, str], Dict[str, DivisionPage], List[str]]:
     """Walk outward from the seed clubs: ``({club key: name}, {division key: page}, problems)``."""
     base = f"{BASE_URL}/{site_id}"
@@ -463,10 +536,18 @@ def collect_league(
             if division_key in divisions or (max_divisions is not None and len(divisions) >= max_divisions):
                 continue
             url = f"{base}/schedules/{season_label}/{division_key}.html"
-            divisions[division_key] = parse_division_page(fetch_html(url), division_key, url)
+            try:
+                page = parse_division_page(fetch_html(url), division_key, url, team_codes)
+            except PageNotFoundError:
+                page = DivisionPage(name="", no_schedule_page=True)
+            divisions[division_key] = page
             pause()
-            problems.extend(divisions[division_key].problems)
-            queue.extend(stub.club_key for stub in divisions[division_key].teams.values() if stub.club_key)
+            problems.extend(page.problems)
+            queue.extend(stub.club_key for stub in page.teams.values() if stub.club_key)
+    if not divisions:
+        problems.append(f"the clubs walked list no {season_label} division")
+    elif all(page.no_schedule_page for page in divisions.values()):
+        problems.append(f"none of the {len(divisions)} divisions the clubs list has a schedule page")
     return clubs, divisions, problems
 
 
@@ -1035,6 +1116,7 @@ def main() -> int:
                 list(league.seed_clubs),
                 pause,
                 args.max_divisions,
+                league.team_codes,
             )
         except SeasonNotListedError as e:
             console.print(f"[yellow]{escape(str(e))}[/yellow]")
@@ -1102,7 +1184,7 @@ def main() -> int:
         games, in_scope, outcomes, args.site_id, args.season, league.name, since, date.today(), args.days_forward
     )
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{args.site_id}"
     games_csv = args.output_dir / f"{stamp}_games.csv"
     held_csv = args.output_dir / f"{stamp}_held.csv"
     cross_age_csv = args.output_dir / f"{stamp}_cross_age.csv"
@@ -1127,21 +1209,28 @@ def main() -> int:
     summary.add_row("games held back", str(len(held)))
     summary.add_row("cross-age games imported", str(len(cross_age)))
     summary.add_row("forfeits (no score, not imported)", str(sum(len(page.forfeits) for page in divisions.values())))
+    no_schedule = sorted(key for key, page in divisions.items() if page.no_schedule_page)
+    summary.add_row("divisions with no schedule page", str(len(no_schedule)))
     summary.add_row("problems", str(len(problems)))
     console.print(summary)
     for problem in problems:
         console.print(f"  [yellow]{escape(problem)}[/yellow]")
     console.print(f"Team report:   {report_csv}\nGames CSV:     {games_csv}")
     console.print(f"Held games:    {held_csv}\nCross-age CSV: {cross_age_csv}")
+    if no_schedule:
+        console.print(
+            f"[yellow]{len(no_schedule)} divisions a club lists have no schedule page, so their teams were not read: "
+            f"{', '.join(no_schedule)}[/yellow]"
+        )
     if conflicted:
         console.print(
-            f"[yellow]{len(conflicted)} teams matched a team another NCSL squad matched and are held; "
+            f"[yellow]{len(conflicted)} teams matched a team another {escape(league.name)} squad matched and are held; "
             f"see the team report: {', '.join(conflicted)}[/yellow]"
         )
     if failed:
         console.print(f"[red]{len(failed)} teams errored; see the team report: {', '.join(failed)}[/red]")
     if problems:
-        console.print(f"[red]{len(problems)} rows could not be read and were left out; see the problems above.[/red]")
+        console.print(f"[red]{len(problems)} problems; see them above.[/red]")
 
     if dry_run:
         console.print("\n[yellow]Dry run — no teams, aliases, review rows or games were written.[/yellow]")
