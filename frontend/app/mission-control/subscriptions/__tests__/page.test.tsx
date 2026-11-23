@@ -18,9 +18,10 @@ import SubscriptionsDashboardPage from '../page';
 /**
  * Flatten a server component's element tree to its visible text.
  *
- * The numbers are covered by the metric suites; what these tests guard is the
- * sentence rendered beside them, because an inverted availability branch tells
- * the operator that no invoices are outstanding when the fetch simply failed.
+ * Numbers computed in subscription-metrics are covered by its suites; what
+ * these tests guard is the sentence rendered beside them and any count the page
+ * works out itself, because an inverted availability branch tells the operator
+ * that no invoices are outstanding when the fetch simply failed.
  */
 function textOf(node: ReactNode): string {
   if (node === null || node === undefined || typeof node === 'boolean') return '';
@@ -174,6 +175,29 @@ describe('SubscriptionsDashboardPage', () => {
     getSubscriptionMetrics.mockReturnValue(metrics({ activePaid: { total: 0, monthly: 0, annual: 0 } }));
     const text = textOf(await SubscriptionsDashboardPage());
     expect(text).toContain('0 monthly (—) · 0 annual (—)');
+  });
+
+  it('counts the trial pipeline by plan right after its heading', async () => {
+    const trial = { email: 'a@example.com', trialEnd: '2026-09-10T00:00:00Z', daysRemaining: 6 };
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({
+        trials: {
+          total: 5,
+          canceledPending: 0,
+          endingIn3Days: 0,
+          endingIn7Days: 5,
+          list: [
+            { ...trial, id: 'sub_1', interval: 'month' },
+            { ...trial, id: 'sub_2', interval: 'year' },
+            { ...trial, id: 'sub_3', interval: 'month' },
+            { ...trial, id: 'sub_4', interval: 'year' },
+            { ...trial, id: 'sub_5', interval: 'month' },
+          ],
+        },
+      })
+    );
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toMatch(/Trial Pipeline[^·]*3 Monthly · 2 Annual/);
   });
 
   it('shows all-time churn among everyone who ever paid', async () => {

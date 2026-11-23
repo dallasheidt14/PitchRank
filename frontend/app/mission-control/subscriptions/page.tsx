@@ -71,6 +71,8 @@ export default async function SubscriptionsDashboardPage() {
     month: 'long',
     timeZone: BUSINESS_TIMEZONE,
   });
+  const trialMonthly = metrics.trials.list.filter((row) => row.interval === 'month').length;
+  const trialAnnual = metrics.trials.list.filter((row) => row.interval === 'year').length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -223,7 +225,10 @@ export default async function SubscriptionsDashboardPage() {
 
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
-            <h2 className="font-display text-xl font-semibold">Trial Pipeline</h2>
+            <div className="flex items-baseline gap-3">
+              <h2 className="font-display text-xl font-semibold">Trial Pipeline</h2>
+              <span className="text-sm text-muted-foreground">{`${trialMonthly} Monthly · ${trialAnnual} Annual`}</span>
+            </div>
             <span className="text-sm text-muted-foreground">
               sorted by soonest end · canceled trials hidden
               {metrics.trials.canceledPending > 0 && ` (${metrics.trials.canceledPending} not shown)`}
