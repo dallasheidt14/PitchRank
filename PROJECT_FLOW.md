@@ -364,7 +364,7 @@ python scripts/scrape_games.py --provider gotsport --limit-teams 10
 **GotSport Scraper (`src/scrapers/gotsport.py`):**
 - Uses GotSport API: `https://system.gotsport.com/api/v1/teams/{team_id}/matches?past=true`
 - Supports ZenRows proxy (via `ZENROWS_API_KEY` env var)
-- Incremental scraping: Only fetches games since last scrape date
+- Scrape window: from `scrape_start_date` (Aug 1 of the season, or 90 days before the request's date if earlier)
 - Rate limiting: Configurable delays (default 1.5-2.5s)
 - Club name extraction: Fetches club names from team details API
 

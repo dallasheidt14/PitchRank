@@ -42,7 +42,7 @@ state_code        CHAR(2)           -- a 1-char value reads back 'G '; strip in 
 provider_id       UUID              -- FK to providers(id); there is no provider_code column
 league            TEXT              -- guessed by a manual backfill; NOT current membership
 is_deprecated     BOOLEAN           -- TRUE if merged into another team
-last_scraped_at   TIMESTAMPTZ
+last_scraped_at   TIMESTAMPTZ       -- set by the team's own scrapes AND on both teams of every imported game
 created_at        TIMESTAMPTZ       -- Table-rebuild artifact, NOT when the team appeared
 ```
 
@@ -56,6 +56,18 @@ guesses from `team_name` patterns and `team_alias_map.division`, never clears a 
 leaves teams created since its last run NULL. A label survives a club's promotion or a
 retired league, such as NPL and NL after both merged into the National 1 League. Confirm
 any "club X plays in league Y this season" claim against that league's own member list.
+
+`last_scraped_at` has two writers, so a recent value does not show the team's own page was read: the
+team's own scrape stamps `now()` after a success, partial or not-found attempt, and
+`EnhancedETLPipeline._update_team_scrape_dates` stamps each imported game's `scraped_at` onto both of
+its teams, from any provider, through the unconditional `bulk_update_last_scraped_at` RPC. A team's
+own scrapes are `team_scrape_log` rows (`team_id` holds the `team_id_master`; `provider_id`; `status`
+`success`/`partial`/`error`). Even a success or partial row is an attempt, not proof of coverage: it
+records no provider team id, so it cannot say which registration was read; `process_missing_games.py`
+reads only `scrape_start_date(request date)` to the request date + 90 days; and the status comes from
+what the scrape returned and is not revised if the import then fails. A GotSport scrape's start date
+comes from `scrape_start_date` in `src/scrapers/gotsport.py` unless `scrape_games.py --since-date`
+overrides it.
 
 ### `games`
 ```sql
@@ -90,6 +102,13 @@ last changed as the later of `scraped_at` and the newest `game_corrections.appro
 `status = 'approved'` and `correction_type = 'score'`, matched on `original_game_uid = game_uid`.
 Scrapers write a naive local `datetime.now()` that the database reads as UTC, so allow a day's
 margin when comparing `scraped_at` with a UTC time.
+
+`source_url` on a GotSport row saved by a team scrape is the game-history page of the team whose scrape
+saved it (`rankings.gotsport.com/teams/<GotSport id>/game-history`); event scrapes write the event's
+schedule page. Credit a newly saved game to a team scrape by that id and the game's `scraped_at`, and
+match a `team_scrape_log` row within the same run rather than exactly: the log row is stamped when the
+run's log is written. `team_scrape_log.games_found` counts every game the scrape returned, stored ones
+included, so it is not a hit rate.
 
 **What one scrape request added.** A `scrape_requests` row's `processed_at` and `completed_at`
 bracket its import: `process_missing_games.py` stamps both from the runner's UTC clock, sets each

@@ -60,7 +60,7 @@ Provider-specific scrapers (GotSportScraper, etc.)
 **Key Features**:
 - Uses GotSport API: `https://system.gotsport.com/api/v1/teams/{team_id}/matches`
 - Supports ZenRows proxy (optional)
-- Incremental scraping with date filtering
+- Date filtering from `scrape_start_date` (Aug 1 of the season, or 90 days before the request's date if earlier)
 - Rate limiting (1.5-2.5s delays)
 - SSL error handling with retries
 - Club name extraction

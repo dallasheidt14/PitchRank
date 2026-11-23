@@ -1,6 +1,7 @@
 import asyncio
 import io
 import threading
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -150,8 +151,7 @@ async def test_scrape_team_concurrent_downgrades_team_not_found_to_skip():
             "team_name": "unknown_3712624",
             "team_id_master": "team-master-1",
         },
-        since_date=None,
-        scrape_dates_cache={},
+        since_date=date(2026, 8, 1),
         file_lock=threading.Lock(),
         output_file_handle=io.StringIO(),
         log_buffer=log_buffer,
@@ -192,8 +192,7 @@ async def test_scrape_team_concurrent_waf_blocked_reraises_and_logs_error_status
                 "team_name": "Test Team",
                 "team_id_master": "team-master-waf",
             },
-            since_date=None,
-            scrape_dates_cache={},
+            since_date=date(2026, 8, 1),
             file_lock=threading.Lock(),
             output_file_handle=io.StringIO(),
             log_buffer=log_buffer,
