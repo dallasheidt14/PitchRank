@@ -3419,3 +3419,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `teams.club_name` for the Connecticut GotSport rows named "Albion SC Fairfield ..." (5 rows, 3 of them also holding an EA alias); the `normalizing-club-names` skill's hand-vetted path (`scripts/apply_vetted_club_names.py`)
 - **Why**: Seen 2026-11-20: each of these teams is named Albion SC Fairfield but stored with club "Regal Sporting Group", while the two EA-created rows carry "ALBION SC Fairfield", so one club splits across two club names and the duplicate scan cannot pair them. "Regal Sporting Group" looks like the GotSport registration entity; confirm with the owner before moving, since the weekly backfill may write it back from GotSport.
 - **Noted**: 2026-11-20
+
+### Show which spot-check holds the cleanup page's clean-weeks count down
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `cleanWeeks` in `frontend/lib/mission-control/cleanup.ts`; the verdict buttons' `onClick` and the "Clean weeks in a row" line in `frontend/components/mission-control/cleanup/SpotCheckReview.tsx`
+- **Why**: On 2026-11-22 the page read "1 of 4" after three judged weeks: one Nov 11 sample had lost its verdict, because clicking the verdict already selected sets it back to null, and `cleanWeeks` ends the count at any older week with an unjudged sample. The page names neither, so finding the cause took a database query. Name the week and sample that stop the count, and consider making a re-click not clear the verdict silently.
+- **Noted**: 2026-11-22
