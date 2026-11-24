@@ -27,7 +27,7 @@ def _paged(query_builder):
     on gen_random_uuid(), so a row inserted mid-read still lands at a random
     position and can displace another. A total order fixes the boundary, not
     concurrency. Offsets also shift when rows leave the filter during the read (a
-    NULL score being filled, say); such a read needs keyset paging (id > last id).
+    NULL score being filled, say); such a read needs _keyset.
     """
     rows, offset = [], 0
     while True:
@@ -36,6 +36,27 @@ def _paged(query_builder):
         if len(batch) < PAGE_SIZE:
             return rows
         offset += PAGE_SIZE
+
+
+def _keyset(query_builder, key="id"):
+    """Page a PostgREST select by key > the last key read.
+
+    Unlike _paged's offsets, a row inserted or removed mid-read cannot shift a later
+    page. The key must be a selected, unique, non-null column: on a tied value such as
+    one import's shared created_at, the strict cursor skips the rest of the tie.
+    query_builder builds a fresh query each page: postgrest-py's builders mutate, so a
+    reused one sends another limit and cursor.
+    """
+    rows, after = [], None
+    while True:
+        query = query_builder()
+        if after is not None:
+            query = query.gt(key, after)
+        batch = query.order(key).limit(PAGE_SIZE).execute().data or []
+        rows.extend(batch)
+        if len(batch) < PAGE_SIZE:
+            return rows
+        after = batch[-1][key]
 
 
 def _chunks(items, size=BATCH_SIZE):

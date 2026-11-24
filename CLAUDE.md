@@ -703,6 +703,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `scrape-games.yml` | Manual dispatch | Bulk GotSport scrape (bootstrap, recovery) |
 | `enqueue-viewed-teams.yml` | Daily 05:47 UTC | Queue teams a signed-in subscriber opened in the last 36h (priority 2) |
 | `enqueue-yesterday-games.yml` | Daily 07:13 UTC | Queue one team per yesterday game with a null score (priority 2) |
+| `enqueue-opponent-frontier.yml` | Daily 08:43 UTC | Queue teams that just appeared as an opponent and that we have never scraped this season; on a day with none, the same window's opponents we last scraped 14+ days ago (priority 2) |
 | `enqueue-active-teams.yml` | Daily 10:28 UTC | Queue teams active in the last 3 days (priority 2) |
 | `enqueue-discovery.yml` | Sun 14:41 UTC | Queue teams with no future games (priority 3) |
 | `enqueue-safety-net.yml` | Sun 16:56 UTC | Queue never-scraped / 90d+ teams (priority 4) |
@@ -934,6 +935,7 @@ workflow is now a manual escape hatch for bootstrap and recovery only.
 | `frontend/app/api/watchlist/add` | User watchlists a team | 1 | That team — skipped when it has no `provider_id`, and capped at 100 distinct teams per user per hour so a scripted sweep cannot starve the shared priority-1 lane. Fires on the localStorage-watchlist migration too, which is the only signal for a team a user starred before subscribing |
 | `enqueue_viewed_teams.py` | Daily | 2 | Teams a signed-in subscriber opened in the last 36h, GotSport-servable only — admin views excluded, and skips any team already holding a pending user click |
 | `enqueue_yesterday_games.py` | Daily | 2 | One team per yesterday game with a null score — a greedy cover, not both sides — excluding any already scraped today or holding a conflicting queue row |
+| `enqueue_opponent_frontier.py` | Daily | 2 | GotSport-servable teams (an own GotSport id or an approved GotSport alias) that appeared as an opponent in a game saved in the last 7 days and have no scrape of their own this season (a success or partial `team_scrape_log` row since Aug 1); ranking-excluded teams are skipped and teams that failed in the last 7 days wait a week. On a day with none, up to the 1,000 cap of the same window's opponents that we did scrape this season, last 14+ days ago, and that have been sighted again since, as `opponent_frontier_rescrape` |
 | `enqueue_active_teams.py` | Daily | 2 | Teams that played in the last 3 days |
 | `enqueue_discovery_teams.py` | Weekly | 3 | Teams with no future games on record |
 | `discover_teams_from_opponents.py` | Weekly | 3 | Teams it newly creates while resolving "Unknown" opponents (run by `unknown-opponent-hygiene-weekly.yml`) |
@@ -989,12 +991,22 @@ rather than `pending` so days-old requests do not jump ahead of current work.
 
 Every selector on the path is fixed-N: `enqueue_safety_net.py` and
 `enqueue_discovery_teams.py` default to 500 and 1000 and their crons pass no `--limit`,
-`enqueue_active_teams.py` defaults to 2000, `process-missing-games.yml` runs `--limit 40`,
-and `drain_queue._fetch_topup_teams` pages *until* it has filled its shortfall. Producers
-therefore enqueue their full quota whenever the eligible pool exceeds it, which it always
-does — the never-scraped teams alone number in the tens of thousands.
+`enqueue_active_teams.py` defaults to 2000, `enqueue_opponent_frontier.py` to 1000,
+`process-missing-games.yml` runs `--limit 40`, and `drain_queue._fetch_topup_teams` pages
+*until* it has filled its shortfall. Producers therefore enqueue their full quota whenever
+the eligible pool exceeds it, which it always does — the never-scraped teams alone number in
+the tens of thousands. `enqueue_opponent_frontier.py`'s main rule is the exception: it is
+limited by supply (about 110 never-scraped teams first appear as an opponent each day,
+November 2026), while a day its fallback runs fills the cap. `process_missing_games` tops a
+run up from `teams` only when it finds no pending row, so these rows change a run's count only
+through what else is waiting. Beside 40 or more other pending rows they change nothing. Beside
+1 to 39 they add scrapes, up to 40, to a run that would have skipped the top-up. With none,
+they take the top-up's place, and the run scrapes fewer than 40 only when fewer than 40 of
+them wait. `drain_queue` tops up to its total limit, so its count does not move.
 
-So **narrowing eligibility changes which teams get scraped, never how many.** A change
+So **narrowing a fixed-N selector's eligibility changes which teams get scraped, never how
+many**, apart from a `process_missing_games` run that finds, or would have found, 1 to 39
+pending rows. A change
 that filters the queue buys targeting quality, not ZenRows spend. To actually reduce cost,
 change the limits or the cadence. Say which of the two a proposal is doing before writing
 it, because the wrong assumption survives a long way into a plan.
@@ -1151,7 +1163,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 - A dry run writes nothing, local files included. A guard that reads a file a previous run wrote is switched off by a dry run that rewrites that file: a team-cleanup page build's dry run once rewrote the page's `published` marker, and the next build's "the owner has decided cards" refusal stopped firing. Key a guard on the state that cannot be previewed away (the database rows), and make the dry run print what it would write instead. Two exceptions are owner-approved: the operator-run per-event importers (2026-11-09) (`import_tourneycentral_event.py`, `import_athletes2events_event.py`, `import_soccereventsgroup_event.py`, `import_htgsports_event.py`): their dry run writes new date-stamped games, cross-age and team-report CSVs under `data/raw/<provider>/`, which are the owner's review sheet before `--execute` and which nothing reads back, and the weekly `import_heartland.py` (2026-11-14), whose dry run also writes a held-games CSV.
 - A dry run reports the failures it can see (a failed read, a row it could not decide) with the exit status the real run would give; only checks that need the writes, such as reading them back, are skipped. A dry run that returns before its failure check exits 0 on a run that would fail.
 - A command a script prints for the owner to run next (a retry after a lost answer, an undo line in a record) is a code path too. Build it from the invocation's own mode, so a dry run never prints `--execute`. Point it at the tool's own guarded command, never at raw SQL; where it offers a lower-level command instead, say which of the tool's checks that command skips.
-- A workflow step's output is public, because this repo is. Text a script prints in Actions (stored error messages, team names a user clicked, a library's own log lines quoting a request URL) is published the moment the step runs, and a dispatch input that switches on verbose output publishes everything it prints. Log counts from scheduled runs, and keep secrets out of the URLs a library logs and the error text a script stores: GitHub masks a registered secret in the log itself, never in a row the step stores or a file it writes.
+- A workflow step's output is public, because this repo is. Text a script prints in Actions (stored error messages, team names a user clicked, a library's own log lines quoting a request URL) is published the moment the step runs, and a dispatch input that switches on verbose output publishes everything it prints. Log counts from scheduled runs, and keep secrets out of the URLs a library logs and the error text a script stores: GitHub masks a registered secret in the log itself, never in a row the step stores or a file it writes. Provider team ids count as private here too: the browser roles are refused `teams.provider_team_id` and the games' provider-id columns and `source_url` on purpose (`20261121000100_hide_provider_ids_from_public_reads.sql`). So print counts, never provider ids, from any run in Actions, a dispatched dry run included, and keep a per-team preview that shows them for local runs.
 - Run `python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py` before committing Python changes — that path list is the python-lint CI job, and `ruff` is not on PATH on a stock Windows checkout. A Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
 - Do NOT run `ruff format` over a whole file. Repo-wide format enforcement is deliberately deferred (`.pre-commit-config.yaml` is lint-only), so formatting a file rewrites unrelated code and buries the real diff. Check `ruff format --diff` first and keep the reformatting to lines the change already touches.
 

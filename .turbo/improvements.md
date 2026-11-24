@@ -562,6 +562,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `GOTSPORT_PROVIDER_CODE` plus `get_gotsport_provider_id` is byte-identical in all seven, and `enqueue_helpers.py` now exists expressly to hold what the enqueue scripts share. A `providers` change — a second GotSport row, a code rename, a `.single()` → `.maybe_single()` fix — has to land five times, and missing one leaves a job selecting against a stale id, which reads as "enqueues nothing" rather than an error. Pure move plus an import swap; the existing suite covers all five. Left out of the viewed-teams PR because it edits four daily jobs that change did not otherwise touch. Raised by the consistency reviewer; user chose to defer, 2026-09-03.
 - **Noted**: 2026-09-03
 - **Update (2026-09-07)**: Now seven copies, not five — `audit_polluted_gotsport_aliases.py` and `maintain_gotsport_direct_id_aliases.py` carry it too, so the count in the original text was corrected. The two new ones are not enqueue jobs, which is why a grep over `enqueue_*.py` missed them.
+- **Update (2026-11-23)**: Eight copies now: `scripts/enqueue_opponent_frontier.py` adds one (`git grep -l "def get_gotsport_provider_id" -- scripts/`).
 
 ### Recover an orphaned ZenRows batch job instead of reporting nothing to recover
 
@@ -1276,6 +1277,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Update (2026-10-12)**: `tests/unit/test_server_side_team_search_migration.py` adds another `_executable` and newest-function-by-name helper.
 - **Update (2026-11-02)**: The enqueue jobs' `FakeSupabase` double now has four near-copies (`test_enqueue_yesterday_games.py`, `test_enqueue_viewed_teams.py`, `test_enqueue_helpers.py`, `test_enqueue_user_interest_teams.py`), and they have drifted: in `test_enqueue_user_interest_teams.py`, `rpc_calls` records every attempt and a failure raises postgrest's `APIError`; in the yesterday-games and viewed-teams copies it records only successes and a failure raises `RuntimeError`.
 - **Update (2026-11-12)**: `scripts/extract_and_import_tgs_teams.py` pages through `enqueue_helpers._paged`, but `TGSGameMatcher._cohort` (`src/models/tgs_matcher.py`) is another hand-rolled pager, ordered by `team_id_master` with a literal 1000. `src/etl/enhanced_pipeline.py` already imports from `scripts.enqueue_helpers`, so `_cohort` could page through `_paged` too.
+- **Update (2026-11-23)**: `enqueue_helpers` now has a keyset pager too, `_keyset`, which `scripts/enqueue_opponent_frontier.py` uses; `fetch_unscored_games` in `enqueue_yesterday_games.py` is still a hand-rolled copy of it. `tests/unit/test_enqueue_opponent_frontier.py` adds a fifth enqueue `FakeSupabase`, the strictest so far (instant-aware `gt`/`gte`, multi-key `order`, a `max_rows` cap, reversed storage, a query log, and a refused second `range()`/`limit()`), and the natural base for a shared one. The script's `_instant` is a third copy of the PostgREST timestamp parse in `scraped_today` (`enqueue_yesterday_games.py`) and `scraped_within_cooldown` (`enqueue_viewed_teams.py`).
 
 ### Catch English-league teams that arrive after the exclusion list was built
 
@@ -2577,6 +2579,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `teams_with_pending_user_request` in `scripts/enqueue_helpers.py`; `enqueue_team` in `scripts/enqueue_active_teams.py`
 - **Why**: Both docstrings say re-queuing a team rewrites its pending row's `game_date`. The current `enqueue_scrape_request_once` (`supabase/migrations/20261020020000_atomic_matchbalance_refresh.sql`) reuses an active row and only promotes its priority ("Never rewrite an adopted request's registration, date, or FIFO position"), raising 23505 on a conflicting date or registration. The helper's stated reason for protecting a user's pending priority-1 row no longer holds as written, and it reads only canonical ids, so it misses a row stored under a merged-away id. Fix both docstrings and decide whether the helper is still needed. Found by a consistency review on 2026-11-02.
 - **Noted**: 2026-11-02
+- **Update (2026-11-23)**: The active-teams text is the second and third paragraphs of `enqueue_team`'s docstring (`scripts/enqueue_active_teams.py:94-102`). A third docstring, `enqueue_team` in `scripts/enqueue_discovery_teams.py` (L76-82), reaches the right outcome (a waiting row keeps its date) for a stale reason: it credits `COALESCE` in an UPDATE branch the live RPC no longer has. Two comments carry the same stale claim: the schedule comment in `.github/workflows/enqueue-viewed-teams.yml` ("a date-specific producer that runs later overwrites its anchor") and the comment above the enqueue call in `frontend/app/api/watchlist/add/route.ts` (`game_date = COALESCE(p_game_date, game_date)`). Found while building the opponent-frontier enqueue; the overlapping entry "Correct teams_with_pending_user_request's reason for skipping a user's row" covers the helper half of this one.
 
 ### A dry-run game import still writes a build_logs row
 
@@ -3250,6 +3253,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `teams_with_pending_user_request` in `scripts/enqueue_helpers.py`
 - **Why**: Its docstring says `enqueue_scrape_request`'s UPDATE branch rewrites `game_date`, but the newest definition (`20261020020000_atomic_matchbalance_refresh.sql`) never rewrites an adopted request's registration, date or FIFO position, so the stated reason is stale and the skip may no longer be needed for that reason.
 - **Noted**: 2026-11-17
+- **Update (2026-11-23)**: Overlaps "Correct two queue-job docstrings that still say enqueue_scrape_request re-dates a row", which also lists the active-teams and discovery docstrings; fix them together. The opponent-frontier enqueue does not call this helper, because a priority-2 call can only lower a compatible row's priority number and never rewrites its date.
 
 ### Refuse a merge whose listed merge_id was already merged away, instead of retiring its survivor
 
@@ -3464,4 +3468,36 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `getSubscriptionMetrics` (the `trialing` `safeList` call, the `trials:` block and the `computeLeadToTrial` call) in `frontend/lib/admin/subscription-metrics.ts`; the Active Trials and Trials Ending ≤7d cards, the Trial Pipeline section and the Lead → Trial card in `frontend/app/mission-control/subscriptions/page.tsx`
 - **Why**: `safeList` returns `ok: false` with an empty list when the trialing fetch fails, but `trials` carries no `available` flag, so the two trial cards and the "N Monthly · N Annual" line beside the Trial Pipeline heading read 0 and the table is replaced by "No active trials.", while the red banner and the Trials by Month section (whose `available` already reads `trialing.ok`) say the data could not be loaded. Carry `trialing.ok` as `trials.available` and render "could not be loaded" on the two trial cards and in the Trial Pipeline section. The Lead → Trial card also counts `trialing.items` and has no flag, so a failed fetch makes it silently low; decide whether it takes the same treatment.
+- **Noted**: 2026-11-23
+
+### Label every request type on the dashboard's queue view, the opponent-frontier ones included
+
+- **Type**: direct
+- **Category**: dx
+- **Where**: `REQUEST_TYPE_LABELS` in `dashboard.py` (the scrape-queue section)
+- **Why**: Every reader of the map uses `REQUEST_TYPE_LABELS.get(t, t)`, so the new `opponent_frontier` and `opponent_frontier_rescrape` rows show their raw strings in the counts table, the type filter and the row lists. The map labels only `missing_game`, `yesterday_game`, `discovery`, `safety_net` and `new_team`; `active_team`, `viewed_team`, `retention_hygiene`, `watchlist_add` and `missing_games` are unlabelled too. `missing_games` has two writers, `enqueue_stranded_merge_fixtures.py` at priority 2 and MatchBalance seeding (`SEEDING_REQUEST_TYPE` in `src/tournaments/seeding_enqueue.py`) at priority 1, so a label must not name either. Collect the types from every `enqueue_scrape_request` caller: the scripts' `REQUEST_TYPE` constants, that seeding constant, and the literals the frontend routes pass (`missing_game`, `new_team`, `watchlist_add`). Check the priority labels beside the map too: priority 2 now holds five producers.
+- **Noted**: 2026-11-23
+
+### Correct retire_stranded_scrape_requests.py's claim that a processing row does not block a new request
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: the module docstring of `scripts/retire_stranded_scrape_requests.py`
+- **Why**: It says `idx_scrape_requests_pending_team` is unique only on `pending`, so a stranded `processing` row "does not stop a fresh 'pending' one being created". `idx_scrape_requests_active_team` (`20261020020000_atomic_matchbalance_refresh.sql`) is unique across `pending` and `processing`, so a stranded row does block the team's next request, and `enqueue_scrape_request` raises 55000 for one older than 24h. The conclusion (retire them) still holds; the stated reason is backwards. Found while building the opponent-frontier enqueue.
+- **Noted**: 2026-11-23
+
+### Keep the sibling enqueue jobs' dry-run previews and httpx request lines out of public Actions logs
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the dry-run `WOULD ENQUEUE` loop in `main()` of `scripts/enqueue_viewed_teams.py`, `enqueue_yesterday_games.py`, `enqueue_active_teams.py`, `enqueue_discovery_teams.py` and `enqueue_safety_net.py`, and their logging setup
+- **Why**: A dispatched dry run of any of them prints each target's `team_id_master` and name into a public log. For four of the five those are public on team pages anyway; for viewed-teams the list is the teams signed-in subscribers opened, which CLAUDE.md's public-output rule names. None quiets the `httpx` logger (grep finds no `httpx` in any of the five), so each PostgREST URL is logged at INFO with its `in.(...)` team ids, which for viewed-teams carry the same list. `enqueue_opponent_frontier.py` prints counts only when `GITHUB_ACTIONS` is `"true"` and sets `httpx` to WARNING; mirror that. The entry "Stop Actions run logs and artifacts publishing GotSport team ids" covers the scraping and unknown-opponent workflows, not these.
+- **Noted**: 2026-11-23
+
+### Point scrape-games.yml's header at CLAUDE.md's producer table instead of listing producers
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: the header comment of `.github/workflows/scrape-games.yml`
+- **Why**: It names three producers (yesterday-games, discovery, safety-net) "drained by process_missing_games at 200 teams every 15 minutes". Six scheduled enqueue workflows feed the queue now, and `process-missing-games.yml` drains 40 a run. Nothing checks the list, so it drifts with every new producer; a pointer to the producer table under "Scraping is queue-driven" in CLAUDE.md does not.
 - **Noted**: 2026-11-23

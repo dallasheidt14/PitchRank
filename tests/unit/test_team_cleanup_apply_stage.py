@@ -968,6 +968,7 @@ NOT_A_WRITER = {
     "double-stored-games-report-weekly.yml": "reads games and writes nothing",
     "enqueue-active-teams.yml": "writes scrape_requests",
     "enqueue-discovery.yml": "writes scrape_requests",
+    "enqueue-opponent-frontier.yml": "writes scrape_requests",
     "enqueue-safety-net.yml": "writes scrape_requests",
     "enqueue-viewed-teams.yml": "writes scrape_requests",
     "enqueue-yesterday-games.yml": "writes scrape_requests",

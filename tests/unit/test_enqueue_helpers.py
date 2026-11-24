@@ -12,11 +12,13 @@ import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from scripts import enqueue_helpers  # noqa: E402
 from scripts.enqueue_helpers import (  # noqa: E402
     BATCH_SIZE,
     PAGE_SIZE,
     TEAM_ROW_COLUMNS,
     _chunks,
+    _keyset,
     _paged,
     load_team_rows,
     resolve_merges,
@@ -56,6 +58,24 @@ class _Table:
         self._filters.append(("gte", column, value))
         return self
 
+    # postgrest-py appends a repeated gt() or limit() to the same builder, so a pager
+    # that reuses one sends another cursor and limit every page.
+    def gt(self, column, value):
+        if any(kind == "gt" for kind, _, _ in self._filters):
+            raise AssertionError(f"{self.name}: a second gt() on one builder: it was reused across pages")
+        self._filters.append(("gt", column, value))
+        return self
+
+    def limit(self, count):
+        if hasattr(self, "_page"):
+            raise AssertionError(f"{self.name}: a second limit() on one builder: it was reused across pages")
+        if self._order is None:
+            raise AssertionError(f"{self.name}: limit() without order() pages a table unstably")
+        self._log.setdefault("limits", []).append(count)
+        rows = sorted(self._matching(), key=lambda r: r[self._order[0]], reverse=self._order[1])
+        self._page = rows[:count]
+        return self
+
     def order(self, column, *, desc=False):
         # Keyword-only, matching postgrest-py: order("id", True) is a TypeError
         # there, so a double that accepted it would hide the mistake.
@@ -83,6 +103,8 @@ class _Table:
                 elif kind == "in" and row[column] not in value:
                     keep = False
                 elif kind == "gte" and not (row[column] >= value):
+                    keep = False
+                elif kind == "gt" and not (row[column] > value):
                     keep = False
             if keep:
                 rows.append(row)
@@ -136,6 +158,18 @@ def test_paged_always_orders_before_ranging():
 
     assert [r["id"] for r in fetched] == list(range(10))
     assert supabase.log["orders"] == ["id"]
+
+
+def test_keyset_reads_every_page_by_the_named_key(monkeypatch):
+    monkeypatch.setattr(enqueue_helpers, "PAGE_SIZE", 2)
+    rows = [{"team_id_master": f"t-{i}"} for i in (3, 0, 4, 1, 2)]
+    supabase = FakeSupabase({"team_ranking_exclusions": rows})
+
+    fetched = _keyset(lambda: supabase.table("team_ranking_exclusions").select("team_id_master"), key="team_id_master")
+
+    assert [r["team_id_master"] for r in fetched] == ["t-0", "t-1", "t-2", "t-3", "t-4"]
+    assert supabase.log["orders"] == ["team_id_master"] * 3
+    assert supabase.log["limits"] == [2, 2, 2]
 
 
 def test_resolve_merges_maps_deprecated_ids_and_leaves_survivors_alone():
