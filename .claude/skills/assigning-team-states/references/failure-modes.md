@@ -9,6 +9,8 @@ quickly, and to spend review effort hunting for new ones.
 - [A hunt that finds mostly false friends](#a-hunt-that-finds-mostly-false-friends)
 - [A club name that is not a club](#a-club-name-that-is-not-a-club)
 - [Two clubs sharing a name](#two-clubs-sharing-a-name)
+- [A club name our own cleanup wrote](#a-club-name-our-own-cleanup-wrote)
+- [A fused row that looks misfiled](#a-fused-row-that-looks-misfiled)
 - [A city that is not a city](#a-city-that-is-not-a-city)
 - [A border club that is not wrong](#a-border-club-that-is-not-wrong)
 - [Evidence that corroborates itself](#evidence-that-corroborates-itself)
@@ -113,6 +115,42 @@ another in Ohio. Counting teams across the merged bucket answers a question nobo
 **Recognising it:** two states that both look like real programs — both with teams whose names
 are geographically consistent with their own state. Contrast with contamination, where the
 minority state's team names read as the majority's.
+
+## A club name our own cleanup wrote
+
+Two clubs sharing a name can also be merged by `scripts/full_club_analysis.py`, which
+`update-missing-club-and-state.yml` runs every Monday. An inline, state-scoped entry of its
+`CLUB_CANONICAL_OVERRIDES` can also reach teams with no state, whenever its pattern names one
+canonical in every state that lists it, and providers such as TGS create teams with no state.
+The run then renames them to that state's club, and Tier B copies the club's state onto them.
+In November 2026 this put 82 Dallas *Sting Soccer Club* teams under *Sting Soccer Club Idaho*
+in Idaho.
+
+**Recognising it:** the provider's own club name for the team, read from its feed, differs
+from the stored one. The stored club is often a state-named canonical of an override. The
+team names carry the other state's regional words (`NTX`), and the opponents sit in one other
+region. Before offering a club name that names a state as evidence, check it against the
+provider's feed: a name the run wrote reads exactly like the club's own.
+
+**Fixing it:** restore the club through `scripts/apply_vetted_club_names.py` and set the state
+with `--set` on the owner's word in the same sitting, since the override still applies to a
+team stored in its own state and Monday's run renames a restored team back. Then move the
+override into `SPELLING_GROUP_OVERRIDES` (see the `normalizing-club-names` skill), or the
+next stateless team is renamed too.
+
+## A fused row that looks misfiled
+
+A row can hold a second squad's provider id, so its schedule mixes two teams' games. *Sting SC
+15/16G Yellow* was an Idaho team whose North Texas games came from a Dallas squad's TGS id
+filed on the same row. Its stored state was right; the row was fused.
+
+**Recognising it:** split the row's games by the side's provider id (`home_provider_id`,
+`away_provider_id`) before calling a state wrong. One squad can hold several ids, so suspect a
+fused row when the out-of-state games all sit under one id, often at a different event on the
+same days as the in-state games.
+
+**Fixing it:** move the other squad's id and games through the `splitting-fused-provider-ids`
+skill, and leave the state alone.
 
 ## A city that is not a city
 

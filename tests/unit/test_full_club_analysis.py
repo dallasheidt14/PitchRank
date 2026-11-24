@@ -493,13 +493,30 @@ def test_the_no_state_pass_leaves_a_generic_utah_name_alone(club):
 
 
 @pytest.mark.parametrize(
-    "club", ["DASC", "Forza Youth FC", "Lincoln Youth Soccer", "LINCOLN YOUTH SOCCER (LYS)", "Herndon Football Club"]
+    "club",
+    [
+        "DASC",
+        "Forza Youth FC",
+        "Lincoln Youth Soccer",
+        "LINCOLN YOUTH SOCCER (LYS)",
+        "Herndon Football Club",
+        "Sting Soccer Club",
+    ],
 )
 def test_the_no_state_pass_leaves_an_owner_spelling_decision_alone(club):
-    """Each owner spelling decision was made from one state's teams, so none may rename a
-    stateless team: "DASC" is also a Nebraska club value, and a Lincoln Youth Soccer with no
-    state could be any of several Lincolns. Each case dies when the exclusion is dropped."""
+    """Each of these spellings was decided from one state's teams, so none may rename a
+    stateless team: "DASC" is also a Nebraska club value, "Sting Soccer Club" a Dallas one whose
+    TGS teams arrive with no state, and a Lincoln Youth Soccer with no state could be any of
+    several Lincolns. Each case dies when the exclusion is dropped."""
     assert analyze_no_state_teams([_team("t0", club, None)]) == []
+
+
+def test_sting_soccer_club_in_idaho_becomes_sting_soccer_club_idaho():
+    """Kept out of the no-state pass, not out of the state pass."""
+    fixes, _, _ = analyze_state([_team("t0", "Sting Soccer Club", "ID")], "ID", VOCAB)
+    assert [(f["from"], f["to"]) for f in fixes if f["type"] == "CANONICAL"] == [
+        ("Sting Soccer Club", "Sting Soccer Club Idaho")
+    ]
 
 
 # (the satellite, the parent it folds into). Folded on the owner's call 2026-09-30, against
