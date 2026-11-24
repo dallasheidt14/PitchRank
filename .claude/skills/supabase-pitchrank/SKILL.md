@@ -368,6 +368,11 @@ so a scan ordered by anything but its cursor skips or repeats rows. `_Query` in
 When a test shrinks a page size to force paging, patch every module that reads it:
 `from scripts.enqueue_helpers import PAGE_SIZE` copies the value, so patching one copy leaves a
 pager that reads the other fetching the whole fixture in one request, and its paging never runs.
+Seed a paging test with more matching rows than max-rows, and place the row that decides the
+assertion outside the first max-rows of them in both the double's stored order and the query's
+sort order. Seeded with exactly max-rows matching rows, or with the deciding row first in storage,
+the test passes with paging removed, because an unpaged or unordered read still returns that row.
+The paging tests in `tests/unit/test_enqueue_opponent_frontier.py` follow both rules (2026-11-24).
 
 supabase-py sends RPC params through httpx `json=`, which raises `TypeError` on a `date` or
 `datetime`, and a job that catches its per-call exceptions then exits green having written
@@ -394,8 +399,10 @@ from elsewhere.
 
 A double whose `range()` returns a fresh clone is more permissive than postgrest, which mutates
 the builder, and it hid the reused-builder defect described under Pagination. Have a double refuse
-a second `range()` on one builder (`_Query.range` in `tests/unit/test_extract_and_import_tgs_teams.py`),
-or, to test paging fully, run the real client offline:
+a second `range()`, `limit()` or same-column `gt()` on one builder, since postgrest-py appends each
+to the builder's params (`_Table` in `tests/unit/test_enqueue_opponent_frontier.py`; `_Query.range`
+in `tests/unit/test_extract_and_import_tgs_teams.py` covers `range()` only), or, to test paging
+fully, run the real client offline:
 `SyncPostgrestClient(base_url, http_client=httpx.Client(transport=httpx.MockTransport(handler)))`,
 with the handler answering by table, projecting each row to the `select` param as the first rule
 above requires, and recording each request's query params. `_PostgrestServer` in
@@ -442,6 +449,21 @@ page. The ranking games fetch reached a query string of about 25 KB at page 991,
 answered a plain-text 400 that the client reports as `JSON could not be generated` (#1243). Give a
 pager helper a zero-argument function that builds the query, as `_paged` in
 `scripts/enqueue_helpers.py` does; a helper handed a built query repeats the defect.
+
+When a range on an indexed column is a scan's only selective filter, order it by that column, then `id`,
+not by `id` alone. A read that another filter narrows first, such as a 100-id `in_`, can keep `_paged`'s
+or `_keyset`'s `id` order.
+A read of one provider's `games` created in the last 7 days, paged `ORDER BY id`, plans
+`Index Scan using games_pkey` with the window as a `Filter`: about 2 million rows read for 16,000 kept,
+and one of three runs hit the 8-second timeout (57014) on a cold cache (measured 2026-11-24 UTC).
+Ordered `created_at, id`, the same read uses
+`idx_games_created_at` (75 ms at offset 15,000). Offset paging works there once the window start is
+computed before the first page, because the filter columns never change. `created_at` is the import
+transaction's start time, though, so an import that commits mid-read can land behind the read position:
+later pages shift and repeat a few rows (de-duplicate by `id`), and the late rows are missed unless the
+next read's window overlaps this one. Keyset on `created_at` alone skips or loops, since an import stamps
+one `now()` on a whole batch. Confirm with `EXPLAIN` that the window is an `Index Cond`, not a `Filter`:
+a warm-cache probe of the slow form took 1 s.
 
 ### Batch Insert/Upsert
 ```python
