@@ -3457,3 +3457,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/scrapers/gotsport.py` (`GotSportScraper.scrape_team_games`, the newest-first parse loop)
 - **Why**: The loop sorts matches by the raw `match_date` string and breaks at the first one whose UTC date is before `since_date`, so a match with a local offset that sorts ahead but falls on the previous UTC day ends the scan early. The peer review of `fix/gotsport-scrape-window` (2026-11-23) showed `2026-08-01T01:00:00+03:00` beside `2026-08-01T00:30:00Z` with an Aug 1 cutoff returning zero games. Sort on `_utc_match_date`, or skip the out-of-window match and continue.
 - **Noted**: 2026-11-23
+
+### Say "could not be loaded" on the trial cards and Trial Pipeline when Stripe's trialing fetch fails
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `getSubscriptionMetrics` (the `trialing` `safeList` call, the `trials:` block and the `computeLeadToTrial` call) in `frontend/lib/admin/subscription-metrics.ts`; the Active Trials and Trials Ending ≤7d cards, the Trial Pipeline section and the Lead → Trial card in `frontend/app/mission-control/subscriptions/page.tsx`
+- **Why**: `safeList` returns `ok: false` with an empty list when the trialing fetch fails, but `trials` carries no `available` flag, so the two trial cards and the "N Monthly · N Annual" line beside the Trial Pipeline heading read 0 and the table is replaced by "No active trials.", while the red banner and the Trials by Month section (whose `available` already reads `trialing.ok`) say the data could not be loaded. Carry `trialing.ok` as `trials.available` and render "could not be loaded" on the two trial cards and in the Trial Pipeline section. The Lead → Trial card also counts `trialing.items` and has no flag, so a failed fetch makes it silently low; decide whether it takes the same treatment.
+- **Noted**: 2026-11-23

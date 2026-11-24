@@ -114,6 +114,19 @@ describe('buildTrialPipeline', () => {
     expect(buildTrialPipeline(subs, now).list[0].email).toBe('jane@example.com');
   });
 
+  it("tags each trial with its own plan's interval", () => {
+    const subs = [
+      makeSub({ id: 'sub_month_a', interval: 'month', trialEnd: now + 1 * SECONDS_PER_DAY }),
+      makeSub({ id: 'sub_year', interval: 'year', trialEnd: now + 2 * SECONDS_PER_DAY }),
+      makeSub({ id: 'sub_month_b', interval: 'month', trialEnd: now + 3 * SECONDS_PER_DAY }),
+    ];
+    expect(buildTrialPipeline(subs, now).list.map((e) => [e.id, e.interval])).toEqual([
+      ['sub_month_a', 'month'],
+      ['sub_year', 'year'],
+      ['sub_month_b', 'month'],
+    ]);
+  });
+
   it('hides trials set to cancel and counts them separately', () => {
     const subs = [
       // active trial — included
