@@ -821,9 +821,11 @@ WORKFLOW = os.path.join(REPO_ROOT, ".github", "workflows", "enqueue-opponent-fro
 # Imports the script with only the standard library, the repo's own packages and what the
 # workflow's pip line installs (with everything those require) available. config stays
 # refused: config.settings pulls in numpy. ModuleNotFoundError, because some libraries
-# catch only that for an optional import.
+# catch only that for an optional import. sys.stdlib_module_names omits stdlib modules
+# CPython generates per platform (Linux's _sysconfigdata_*), so a module found in the
+# stdlib folder, outside site-packages, is allowed too.
 _IMPORT_UNDER_THE_WORKFLOW_INSTALL = """
-import importlib.abc, importlib.metadata as metadata, logging, re, sys
+import importlib.abc, importlib.machinery, importlib.metadata as metadata, logging, os, re, site, sys, sysconfig
 from packaging.requirements import Requirement
 
 def norm(name):
@@ -853,9 +855,25 @@ for module, owners in metadata.packages_distributions().items():
         allowed.add(module)
 allowed.discard("config")
 
+stdlib_dirs = {os.path.realpath(sysconfig.get_paths()[key]) for key in ("stdlib", "platstdlib")}
+site_dirs = {
+    os.path.realpath(p)
+    for p in [*site.getsitepackages(), site.getusersitepackages()]
+    if os.path.basename(p) in ("site-packages", "dist-packages")
+}
+
+def under(path, dirs):
+    return any(path.startswith(d + os.sep) for d in dirs)
+
+def in_stdlib_folder(top):
+    spec = importlib.machinery.PathFinder.find_spec(top)
+    origin = os.path.realpath(spec.origin) if spec is not None and spec.origin else ""
+    return under(origin, stdlib_dirs) and not under(origin, site_dirs)
+
 class _NotInstalled(importlib.abc.MetaPathFinder):
     def find_spec(self, name, path=None, target=None):
-        if name.partition(".")[0] not in allowed:
+        top = name.partition(".")[0]
+        if top not in allowed and not in_stdlib_folder(top):
             raise ModuleNotFoundError("not installed by the workflow: " + name, name=name)
         return None
 
