@@ -982,6 +982,12 @@ every alias on the survivor whose `provider_team_id` is the absorbed row's own p
 of its games (`home_provider_id` where it is home, `away_provider_id` where it is away), matched on
 the id alone across providers: list those aliases before calling it, and when one is not the
 moving squad's own, leave the merge and move the id by hand with `splitting-fused-provider-ids`.
+Games imported after the merge name the survivor, so the revert leaves them there. List them
+afterwards with that skill's `list_id_games.py` on the survivor and the moving id, leaving out
+`--since`, which filters on game date and misses a game played before the merge but imported
+after it. Decide each season as that skill's Step 2 does, then run `move_game_sides.py
+--provider-team-id <moving id>` to the restored row; it skips unscored fixtures, which this
+section says to exclude instead.
 
 **When the moving id's real team already has a row, move the id to it instead of creating one.**
 Follow the write order below with that row as the new row, skipping step 2: repoint the alias

@@ -3502,6 +3502,21 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: It names three producers (yesterday-games, discovery, safety-net) "drained by process_missing_games at 200 teams every 15 minutes". Six scheduled enqueue workflows feed the queue now, and `process-missing-games.yml` drains 40 a run. Nothing checks the list, so it drifts with every new producer; a pointer to the producer table under "Scraping is queue-driven" in CLAUDE.md does not.
 - **Noted**: 2026-11-23
 
+### Find the other inline club overrides whose spelling another state's club also uses
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: the inline entries of `CLUB_CANONICAL_OVERRIDES`, `STATE_ONLY_PATTERNS` and `analyze_no_state_teams` in `scripts/full_club_analysis.py`
+- **Why**: The no-state pass applies an inline state-scoped entry to every stateless team holding its spelling. The ID entry "Sting Soccer Club" -> "Sting Soccer Club Idaho" renamed 82 Dallas Sting TGS teams, which TGS creates with no state, and the state fill then filed them in Idaho (fixed 2026-11-24 by moving it into `SPELLING_GROUP_OVERRIDES`). "Keep the Illinois FC Stars rule out of the no-state pass" is the same shape. List every inline pattern whose spelling also appears on teams stored in another state, and move each into `SPELLING_GROUP_OVERRIDES`.
+- **Noted**: 2026-11-24
+
+### Check tier and schedule before the TGS team import links a new TGS id to an existing team
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `match_or_create` in `scripts/extract_and_import_tgs_teams.py` (links through `TGSGameMatcher.link_candidate` and writes approved `fuzzy_auto` aliases)
+- **Why**: A 2026-11-23 scan found 1,123 team rows holding two squads' ids (same-day games at different events against different opponents), 135 of them a TGS id on another provider's row still misfiling games this season, most linked by name in the December 2025 TGS bulk import. The import still links by name with no tier check (ECNL vs ECNL RL vs Pre-ECNL) and no comparison of the candidate's schedule with the TGS id's games, so new fused rows can appear. Related: "Tighten the TGS club check where a name match reads the whole age group", "Stop fuzzy alias auto-links from fusing a second squad onto a team row".
+
 ### Make pr_wait keep waiting for required checks after the Codex window closes
 
 - **ID**: IMP-409

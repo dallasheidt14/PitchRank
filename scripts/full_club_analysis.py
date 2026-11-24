@@ -473,7 +473,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("KS", "exact", "Union KC Soccer Club", "Union KC"),
     # Idaho
     ("ID", "exact", "Boise Timbers | Thorns", "Boise Timbers | Thorns FC"),
-    ("ID", "exact", "Sting Soccer Club", "Sting Soccer Club Idaho"),
+    # "Sting Soccer Club" is in SPELLING_GROUP_OVERRIDES rather than here so it never reaches a
+    # stateless team: Dallas has its own Sting Soccer Club, whose TGS teams arrive with no state.
     # Iowa
     ("IA", "exact", "FC United (Iowa)", "FC United Iowa"),
     ("IA", "exact", "Iowa Rush Soccer Club - South", "Iowa Rush Soccer Club"),
@@ -3037,7 +3038,8 @@ AFFINITY_UT_OVERRIDES = [
 
 CLUB_CANONICAL_OVERRIDES += AFFINITY_UT_OVERRIDES
 
-# Spelling groups the owner decided from 2026-11-04 on, among what the entries above leave behind.
+# Spelling groups the owner decided from 2026-11-04 on, among what the entries above leave behind,
+# plus earlier inline entries moved here to keep them away from stateless teams.
 # Each was decided from one state's teams, so STATE_ONLY_PATTERNS derives from this list too and
 # the no-state pass never applies one to a stateless team. Where the
 # owner kept two clubs apart, or left a group for more research, no entry joins them. Add a new
@@ -3088,6 +3090,7 @@ SPELLING_GROUP_OVERRIDES = [
     ("GA", "exact", "Southern States Soccer Club", "Southern States Soccer"),
     ("IA", "exact", "Southeast Soccer Academy (SESA)", "Southeast Soccer Academy"),
     ("IA", "exact", "VSA Rush (IA)", "Vision Soccer Academy"),
+    ("ID", "exact", "Sting Soccer Club", "Sting Soccer Club Idaho"),
     ("IL", "exact", "Chicago KICS Youth Soccer Club", "Chicago KICS Football Club"),
     ("IL", "exact", "Illinois Alliance (IL FC/MidState)", "Illinois Alliance"),
     ("IL", "exact", "Schwaben AC", "Schwaben A.C."),
