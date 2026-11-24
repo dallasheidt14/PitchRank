@@ -47,6 +47,7 @@ const matured = (
     created: nowSec - 47 * DAY,
     trialStart: nowSec - 47 * DAY,
     trialEnd: nowSec - 40 * DAY,
+    billingCycleAnchor: nowSec - 40 * DAY,
     currentPeriodEnd: interval === 'year' ? at(2027, 3, 5) : at(2026, 9, 5),
     email: `${id}@example.com`,
     ...over,
@@ -59,7 +60,8 @@ const matured = (
  */
 function allSubscriptions() {
   return [
-    matured('sub_m1', 'active', 'month'),
+    // Renews inside the forecast's week.
+    matured('sub_m1', 'active', 'month', { currentPeriodEnd: sept(20) }),
     matured('sub_m2', 'active', 'month'),
     matured('sub_m3', 'active', 'month'),
     matured('sub_m4', 'active', 'month'),
@@ -80,6 +82,7 @@ function allSubscriptions() {
       created: sept(1),
       trialStart: sept(1),
       trialEnd: sept(8),
+      billingCycleAnchor: sept(8),
     }),
     // September trial still running.
     makeStripeSubscription({
@@ -102,6 +105,7 @@ function allSubscriptions() {
       created: nowSec - 300 * DAY,
       trialStart: nowSec - 300 * DAY,
       trialEnd: nowSec - 293 * DAY,
+      billingCycleAnchor: nowSec - 293 * DAY,
       endedAt: sept(6),
       email: 'established@example.com',
     }),
@@ -128,7 +132,13 @@ function allSubscriptions() {
       endedAt: nowSec - 185 * DAY,
     }),
     // Paid once, long ago, then every renewal failed: still open, so not churned.
-    makeStripeSubscription({ id: 'sub_unpaid', status: 'unpaid', email: 'unpaid@example.com' }),
+    // Anchored a month before that payment, so it was the first renewal.
+    makeStripeSubscription({
+      id: 'sub_unpaid',
+      status: 'unpaid',
+      email: 'unpaid@example.com',
+      billingCycleAnchor: Date.UTC(2025, 6, 12, 7) / 1000,
+    }),
   ];
 }
 
@@ -155,6 +165,15 @@ const paidInvoices = () => [
   ),
   // Older than the 187-day window, so only the lifetime fetch returns it.
   makeStripeInvoice({ amountPaid: 699, subscription: 'sub_unpaid', created: nowSec - 400 * DAY }),
+  // sub_established renewed monthly from Dec 27 through Jul 27 (Aug 27 is still inside
+  // the settle window); the first three are older than the 187-day window.
+  ...Array.from({ length: 8 }, (_, i) =>
+    makeStripeInvoice({
+      amountPaid: 699,
+      subscription: 'sub_established',
+      created: Date.UTC(2025, 11 + i, 27, 7) / 1000,
+    })
+  ),
 ];
 
 /** An async iterable whose Nth pull rejects, the way a real page fetch fails. */
@@ -191,6 +210,7 @@ function setStripe(
     pastDueThrows?: boolean;
     canceledThrows?: boolean;
     unpaidThrows?: boolean;
+    extraInvoices?: Stripe.Invoice[];
   } = {}
 ) {
   const subs = allSubscriptions();
@@ -209,11 +229,13 @@ function setStripe(
     }
     return iterate(subs.filter((s) => s.status === params.status && s.created >= since));
   });
-  invoicesList.mockImplementation((params: { created?: { gte?: number } }) => {
+  invoicesList.mockImplementation((params: { status?: string; created?: { gte?: number } }) => {
+    // Every fixture is a paid invoice, so a request for anything else cannot be answered from them.
+    if (params.status !== 'paid') return rejectingIterable(1);
     const windowed = params.created !== undefined;
     if (windowed ? options.paidThrows : options.lifetimeThrows) return rejectingIterable(1);
     const since = params.created?.gte ?? 0;
-    return iterate(paidInvoices().filter((inv) => inv.created >= since));
+    return iterate([...paidInvoices(), ...(options.extraInvoices ?? [])].filter((inv) => inv.created >= since));
   });
 }
 
@@ -558,6 +580,136 @@ describe('getSubscriptionMetrics', () => {
     setStripe({ cohortThrows: true });
     const metrics = await getSubscriptionMetrics();
     expect(metrics.trialsByMonth.available).toBe(true);
+  });
+});
+
+describe('getSubscriptionMetrics cash forecast', () => {
+  /** Adds subscriptions to one status list, on top of the base fixture. */
+  function addToStripe(status: string, subs: Stripe.Subscription[]) {
+    const byStatus = subscriptionsList.getMockImplementation()!;
+    subscriptionsList.mockImplementation((params: { status?: string }) =>
+      params.status === status
+        ? iterate([...allSubscriptions().filter((s) => s.status === status), ...subs])
+        : byStatus(params)
+    );
+  }
+
+  it('forecasts the week from the renewals and trials every status list holds', async () => {
+    setStripe();
+    const { cashForecast } = await getSubscriptionMetrics();
+    expect(cashForecast.available).toBe(true);
+    // sub_established's eight renewals, and sub_unpaid's one before its first miss.
+    expect(cashForecast.renewalRate).toMatchObject({ observed: 9, sample: 10, isFallback: false });
+    expect(cashForecast.conversion.month).toMatchObject({ observed: 7, sample: 9 });
+    expect(cashForecast.conversion.year).toMatchObject({ observed: 4, sample: 4, excluded: 1 });
+    // sub_m1 renews on Sept 20 (649 × 0.9); sub_sep_live ends its trial on Sept 19 (649 × 7/9).
+    expect(cashForecast.windows.week).toEqual({
+      end: nowSec + 7 * DAY,
+      renewals: 5.84,
+      trials: 5.05,
+      newTrials: null,
+      total: 10.89,
+    });
+    // sub_sep_live is the one start in the last fortnight: 7 days of that pace finish in time.
+    expect(cashForecast.windows.fortnight.newTrials).toBe(2.52);
+  });
+
+  it('counts a renewal once when its subscription turns up in two status lists', async () => {
+    setStripe();
+    addToStripe('past_due', [allSubscriptions().find((s) => s.id === 'sub_m1')!]);
+    const { cashForecast } = await getSubscriptionMetrics();
+    expect(cashForecast.windows.week.renewals).toBe(5.84);
+  });
+
+  it("books a past-due payer's next annual renewal in full, every seat, at the collection rate", async () => {
+    // Paid before, so its next renewal is forecast. The invoice it is past due on is
+    // dated at the start of the current period, before every window.
+    setStripe({
+      extraInvoices: [
+        makeStripeInvoice({ amountPaid: 13998, subscription: 'sub_seats_due', created: nowSec - 340 * DAY }),
+      ],
+    });
+    const seats = makeStripeSubscription({
+      id: 'sub_seats_due',
+      status: 'past_due',
+      interval: 'year',
+      unitAmount: 6999,
+      quantity: 2,
+      currentPeriodEnd: sept(21),
+      email: 'seats@example.com',
+    });
+    addToStripe('past_due', [seats]);
+    const { cashForecast } = await getSubscriptionMetrics();
+    // sub_m1's 584.1 cents, plus netOfStripeFee(13998) = 13562 × 0.9.
+    expect(cashForecast.windows.week.renewals).toBe(127.9);
+  });
+
+  it('forecasts no renewal for a past-due subscriber who never paid', async () => {
+    setStripe();
+    const declined = makeStripeSubscription({
+      id: 'sub_declined',
+      status: 'past_due',
+      currentPeriodEnd: sept(21),
+      email: 'declined@example.com',
+    });
+    addToStripe('past_due', [declined]);
+    const { cashForecast } = await getSubscriptionMetrics();
+    // Only sub_m1, which has paid; the declined first charge books nothing.
+    expect(cashForecast.windows.week.renewals).toBe(5.84);
+  });
+
+  it('measures trial conversion from payments older than the 187-day fetch', async () => {
+    const old = makeStripeSubscription({
+      id: 'sub_old_trial',
+      status: 'canceled',
+      created: nowSec - 307 * DAY,
+      trialStart: nowSec - 307 * DAY,
+      trialEnd: nowSec - 300 * DAY,
+      canceledAt: nowSec - 295 * DAY,
+      endedAt: nowSec - 295 * DAY,
+      email: 'old@example.com',
+    });
+    const converted = makeStripeInvoice({
+      amountPaid: 699,
+      subscription: 'sub_old_trial',
+      created: nowSec - 300 * DAY,
+    });
+    setStripe({ extraInvoices: [converted] });
+    addToStripe('canceled', [old]);
+    const { cashForecast } = await getSubscriptionMetrics();
+    expect(cashForecast.conversion.month).toMatchObject({ observed: 8, sample: 10 });
+  });
+
+  it('reads every payment ever made, unfiltered by date', async () => {
+    setStripe();
+    await getSubscriptionMetrics();
+    const lifetime = invoicesList.mock.calls.map((c) => c[0]).find((p) => p.created === undefined);
+    expect(lifetime).toEqual({ status: 'paid', limit: 100 });
+  });
+
+  it.each([
+    ['active list', { activeThrows: true }],
+    ['trialing list', { trialingThrows: true }],
+    ['past_due list', { pastDueThrows: true }],
+    ['canceled list', { canceledThrows: true }],
+    ['unpaid list', { unpaidThrows: true }],
+    ['lifetime paid invoices', { lifetimeThrows: true }],
+  ])('marks the forecast unavailable when the %s fails', async (_name, failure) => {
+    setStripe(failure);
+    const { cashForecast } = await getSubscriptionMetrics();
+    expect(cashForecast.available).toBe(false);
+    // The page names every section's month from this window, forecast or not.
+    expect(cashForecast.windows.month.end).toBe(Date.UTC(2026, 9, 1, 7) / 1000);
+  });
+
+  it.each([
+    ['conversion cohort', { cohortThrows: true }],
+    ['187-day paid invoices', { paidThrows: true }],
+  ])('keeps the forecast when only the %s fails, since it reads neither', async (_name, failure) => {
+    setStripe(failure);
+    const { cashForecast } = await getSubscriptionMetrics();
+    expect(cashForecast.available).toBe(true);
+    expect(cashForecast.windows.week.total).toBe(10.89);
   });
 });
 

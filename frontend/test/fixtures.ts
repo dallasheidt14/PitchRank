@@ -210,6 +210,7 @@ export function makeStripeSubscription(
     cancelAtPeriodEnd?: boolean;
     created?: number;
     startDate?: number;
+    billingCycleAnchor?: number;
   } = {}
 ): Stripe.Subscription {
   const {
@@ -222,19 +223,22 @@ export function makeStripeSubscription(
     trialEnd = null,
     canceledAt = null,
     endedAt = null,
-    currentPeriodEnd = 0,
+    // A trialing item's period runs to the trial end, as Stripe bills it.
+    currentPeriodEnd = status === 'trialing' ? (trialEnd ?? 0) : 0,
     email = 'test@example.com',
     customer,
     cancelAt = null,
     cancelAtPeriodEnd = false,
     created = 0,
     startDate = created,
+    billingCycleAnchor = trialEnd ?? startDate,
   } = overrides;
   return {
     id,
     status,
     created,
     start_date: startDate,
+    billing_cycle_anchor: billingCycleAnchor,
     trial_start: trialStart,
     trial_end: trialEnd,
     canceled_at: canceledAt,

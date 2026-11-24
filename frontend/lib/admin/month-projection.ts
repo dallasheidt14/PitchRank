@@ -28,6 +28,20 @@ const POISSON_ZERO_UPPER = 1.6094;
  */
 export const FALLBACK_CONVERSION_RATE = 0.478;
 export const FALLBACK_CHURN_RATE = 0.2568;
+/** Derived rather than measured, so this public file adds no business figure of its own. */
+export const FALLBACK_RENEWAL_RATE = 1 - FALLBACK_CHURN_RATE;
+
+/** Stripe's standard US card pricing, taken from every charge. */
+const STRIPE_FEE_PERCENT = 0.029;
+const STRIPE_FEE_FIXED_CENTS = 30;
+
+/** How long after a renewal date a missing payment waits before it counts as a miss; retries are an account setting. */
+const RENEWAL_SETTLE_DAYS = 21;
+/** A cancellation requested at least this long before a renewal takes that renewal out of the sample. */
+const RENEWAL_NOTICE_DAYS = 7;
+/** How far from a renewal date the invoice that collected it may have been created. */
+const RENEWAL_MATCH_DAYS = 2;
+const NEW_TRIAL_PACE_DAYS = 14;
 
 export type RateEstimate = {
   rate: number;
@@ -90,6 +104,25 @@ export type MonthProjection = {
   ltv: number | null;
 };
 
+export type Plan = 'month' | 'year';
+
+/** Expected cash collected from now until `end`, in dollars after Stripe's fee. */
+export type ForecastWindow = {
+  /** Exclusive, in seconds. */
+  end: number;
+  renewals: number;
+  trials: number;
+  /** Null when the window is too short for a trial that has not started yet to end inside it. */
+  newTrials: number | null;
+  total: number;
+};
+
+export type CashForecast = {
+  renewalRate: RateEstimate;
+  conversion: Record<Plan, RateEstimate>;
+  windows: { week: ForecastWindow; fortnight: ForecastWindow; month: ForecastWindow };
+};
+
 /**
  * Subscription IDs whose trial produced a real activation.
  *
@@ -106,14 +139,18 @@ export type MonthProjection = {
 export function collectPaidSubscriptionIds(invoices: Stripe.Invoice[]): Set<string> {
   const out = new Set<string>();
   for (const invoice of invoices) {
-    const paidCash = invoice.amount_paid > 0;
-    const discountedActivation =
-      invoice.total === 0 && invoice.discounts.length > 0 && invoice.billing_reason !== 'subscription_create';
-    if (!paidCash && !discountedActivation) continue;
+    if (!isActivatingPayment(invoice)) continue;
     const id = getInvoiceSubscriptionId(invoice);
     if (id) out.add(id);
   }
   return out;
+}
+
+function isActivatingPayment(invoice: Stripe.Invoice): boolean {
+  const paidCash = invoice.amount_paid > 0;
+  const discountedActivation =
+    invoice.total === 0 && invoice.discounts.length > 0 && invoice.billing_reason !== 'subscription_create';
+  return paidCash || discountedActivation;
 }
 
 /**
@@ -149,6 +186,13 @@ function getServiceEnd(sub: Stripe.Subscription): number | null {
 
 function isExcluded(sub: Stripe.Subscription, excludedEmails: Set<string>): boolean {
   return excludedEmails.has(getCustomerEmail(sub).toLowerCase());
+}
+
+export function getInterval(sub: Stripe.Subscription): Plan | null {
+  const recurring = sub.items.data[0]?.price?.recurring;
+  if (recurring?.interval === 'month') return 'month';
+  if (recurring?.interval === 'year') return 'year';
+  return null;
 }
 
 /**
@@ -549,4 +593,215 @@ export function buildMonthProjection(input: {
     avgLifetimeMonths,
     ltv,
   };
+}
+
+/**
+ * A charge's balance transaction carries the fee Stripe actually took, the
+ * place to look if this ever disagrees. No charge means no fee, so zero stays
+ * zero rather than going negative.
+ */
+export function netOfStripeFee(cents: number): number {
+  if (cents <= 0) return 0;
+  return cents - Math.round(cents * STRIPE_FEE_PERCENT + STRIPE_FEE_FIXED_CENTS);
+}
+
+/**
+ * Of the monthly renewals that came due for activated subscribers, the share a
+ * paid invoice collected.
+ *
+ * Renewal dates are rebuilt from `billing_cycle_anchor`, which is the trial end
+ * for a trial, so the first date scored is the first renewal after the
+ * converting charge. A date counts only when, `RENEWAL_NOTICE_DAYS` ahead of
+ * it, the subscriber had not asked to cancel and was still being served. That
+ * relies on `canceled_at` holding the request time, which Stripe documents for
+ * `cancel_at_period_end` but not for a cancellation set through `cancel_at`
+ * alone. A plan switch resets the anchor, so the renewals before one drop out
+ * of the sample.
+ *
+ * A subscription stops being scored at its first miss. An `unpaid` subscription
+ * keeps reaching renewal dates with neither `canceled_at` nor `ended_at` set,
+ * and Stripe closes those invoices without trying them, so scoring every date
+ * would let one stalled account lower the rate a little more each month.
+ * `paidInvoices` holds only paid invoices, so a miss means no paid renewal
+ * invoice was created within `RENEWAL_MATCH_DAYS` of the date; whether Stripe
+ * attempted the charge is not visible here.
+ *
+ * `observed` and `sample` count renewal dates, while `excluded` counts the
+ * internal subscriptions left out, so the minimum sample is a number of dates.
+ */
+export function computeRenewalCollectionRate(
+  subs: Stripe.Subscription[],
+  paidInvoices: Stripe.Invoice[],
+  now: Date,
+  paidSubIds: Set<string>,
+  excludedEmails: Set<string>
+): RateEstimate {
+  const renewalsBySub = new Map<string, number[]>();
+  for (const invoice of paidInvoices) {
+    if (invoice.billing_reason !== 'subscription_cycle' || !isActivatingPayment(invoice)) continue;
+    const id = getInvoiceSubscriptionId(invoice);
+    if (!id) continue;
+    const created = renewalsBySub.get(id);
+    if (created) created.push(invoice.created);
+    else renewalsBySub.set(id, [invoice.created]);
+  }
+
+  const settled = Math.floor(now.getTime() / 1000) - RENEWAL_SETTLE_DAYS * SECONDS_PER_DAY;
+  let sample = 0;
+  let observed = 0;
+  let excluded = 0;
+  for (const sub of subs) {
+    if (getInterval(sub) !== 'month' || !paidSubIds.has(sub.id)) continue;
+    if (isExcluded(sub, excludedEmails)) {
+      excluded += 1;
+      continue;
+    }
+    const collectedAt = renewalsBySub.get(sub.id) ?? [];
+    for (let k = 1; ; k += 1) {
+      const due = addMonthsClamped(sub.billing_cycle_anchor, k);
+      if (due >= settled) break;
+      const noticeBy = due - RENEWAL_NOTICE_DAYS * SECONDS_PER_DAY;
+      if (
+        (sub.canceled_at !== null && sub.canceled_at <= noticeBy) ||
+        (sub.ended_at !== null && sub.ended_at <= noticeBy)
+      ) {
+        break;
+      }
+      sample += 1;
+      if (!collectedAt.some((created) => Math.abs(created - due) <= RENEWAL_MATCH_DAYS * SECONDS_PER_DAY)) break;
+      observed += 1;
+    }
+  }
+  return finalizeRate(observed, sample, excluded, FALLBACK_RENEWAL_RATE);
+}
+
+/** `anchor` moved `months` calendar months on in UTC, held to the target month's last day, as Stripe bills. */
+function addMonthsClamped(anchor: number, months: number): number {
+  const start = new Date(anchor * 1000);
+  const year = start.getUTCFullYear();
+  const month = start.getUTCMonth() + months;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const day = Math.min(start.getUTCDate(), lastDay);
+  return Date.UTC(year, month, day, start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds()) / 1000;
+}
+
+export function computeLifetimeConversionByPlan(
+  subs: Stripe.Subscription[],
+  paidSubIds: Set<string>,
+  now: number,
+  excludedEmails: Set<string>
+): Record<Plan, RateEstimate> {
+  const forPlan = (plan: Plan) =>
+    computeTrialConversionRate({
+      subs: subs.filter((sub) => getInterval(sub) === plan),
+      paidSubIds,
+      now,
+      windowStart: 0,
+      excludedEmails,
+    });
+  return { month: forPlan('month'), year: forPlan('year') };
+}
+
+/**
+ * The cash Stripe can be expected to collect over the next week, fortnight and
+ * the rest of the month in the business timezone, after its fee.
+ *
+ * Every expected charge is dated and lands in each window that contains it: a
+ * renewal on its item's period end, at the renewal collection rate; a trial on
+ * its end, at its plan's lifetime conversion rate; and trials yet to start at
+ * the pace of the last `NEW_TRIAL_PACE_DAYS`, in the part of a window long
+ * enough for one to finish. Trials already set to cancel are counted at the same rate,
+ * because the rate was measured over every trial, those that cancelled midway
+ * included. Month Projection deliberately treats them as lost instead.
+ *
+ * A renewal is forecast only for a subscriber who has paid before, the
+ * population the collection rate is measured on; annual renewals take the
+ * monthly rate until annual history exists. A subscription left past due by a
+ * declined first charge has never paid, and its trial already counts against
+ * the conversion rate.
+ *
+ * Each part is rounded to the cent and `total` is their sum, so the breakdown
+ * shown beside a figure adds up to it.
+ */
+export function buildCashForecast(input: {
+  now: Date;
+  subs: Stripe.Subscription[];
+  paidSubIds: Set<string>;
+  conversion: Record<Plan, RateEstimate>;
+  renewalRate: RateEstimate;
+  excludedEmails: Set<string>;
+}): CashForecast {
+  const { now, subs, paidSubIds, conversion, renewalRate, excludedEmails } = input;
+  const nowSec = Math.floor(now.getTime() / 1000);
+  const paceStart = nowSec - NEW_TRIAL_PACE_DAYS * SECONDS_PER_DAY;
+
+  const renewalCharges: Charge[] = [];
+  const trialCharges: Charge[] = [];
+  let newTrialCentsPerDay = 0;
+  for (const sub of subs) {
+    if (isExcluded(sub, excludedEmails)) continue;
+    const priced = pricedCentsByPeriodEnd(sub);
+    if (isStillSubscribed(sub) && paidSubIds.has(sub.id)) {
+      for (const [at, cents] of priced) {
+        renewalCharges.push({ at, cents: netOfStripeFee(cents) * renewalRate.rate });
+      }
+    }
+    const plan = getInterval(sub);
+    if (plan === null) continue;
+    const trialCents = netOfStripeFee(sumCents(priced)) * conversion[plan].rate;
+    if (sub.status === 'trialing' && sub.trial_end !== null) {
+      trialCharges.push({ at: sub.trial_end, cents: trialCents });
+    }
+    if (sub.trial_start !== null && sub.trial_start >= paceStart && sub.trial_start < nowSec) {
+      newTrialCentsPerDay += trialCents / NEW_TRIAL_PACE_DAYS;
+    }
+  }
+
+  const windowTo = (end: number): ForecastWindow => {
+    const sumWithin = (charges: Charge[]) =>
+      toDollars(charges.filter((c) => c.at >= nowSec && c.at < end).reduce((t, c) => t + c.cents, 0));
+    const windowDays = (end - nowSec) / SECONDS_PER_DAY;
+    const renewals = sumWithin(renewalCharges);
+    const trials = sumWithin(trialCharges);
+    const newTrials = windowDays > TRIAL_DAYS ? toDollars(newTrialCentsPerDay * (windowDays - TRIAL_DAYS)) : null;
+    return { end, renewals, trials, newTrials, total: toDollars((renewals + trials + (newTrials ?? 0)) * 100) };
+  };
+
+  return {
+    renewalRate,
+    conversion,
+    windows: {
+      week: windowTo(nowSec + 7 * SECONDS_PER_DAY),
+      fortnight: windowTo(nowSec + 14 * SECONDS_PER_DAY),
+      month: windowTo(monthBounds(now).monthEnd),
+    },
+  };
+}
+
+type Charge = { at: number; cents: number };
+
+/** What one subscription item bills per period, in cents, at list price; null without a recurring unit price. */
+export function pricedItemCents(item: Stripe.SubscriptionItem): number | null {
+  const { recurring, unit_amount: unitAmount } = item.price;
+  if (!recurring || unitAmount == null) return null;
+  return unitAmount * (item.quantity ?? 1);
+}
+
+/** A subscription's priced items, grouped into the one charge Stripe bills at each period end. */
+function pricedCentsByPeriodEnd(sub: Stripe.Subscription): Map<number, number> {
+  const byPeriodEnd = new Map<number, number>();
+  for (const item of sub.items.data) {
+    const cents = pricedItemCents(item);
+    if (cents === null) continue;
+    byPeriodEnd.set(item.current_period_end, (byPeriodEnd.get(item.current_period_end) ?? 0) + cents);
+  }
+  return byPeriodEnd;
+}
+
+function sumCents(byPeriodEnd: Map<number, number>): number {
+  return [...byPeriodEnd.values()].reduce((total, cents) => total + cents, 0);
+}
+
+function toDollars(cents: number): number {
+  return Math.round(cents) / 100;
 }

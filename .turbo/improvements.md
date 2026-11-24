@@ -3501,3 +3501,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the header comment of `.github/workflows/scrape-games.yml`
 - **Why**: It names three producers (yesterday-games, discovery, safety-net) "drained by process_missing_games at 200 teams every 15 minutes". Six scheduled enqueue workflows feed the queue now, and `process-missing-games.yml` drains 40 a run. Nothing checks the list, so it drifts with every new producer; a pointer to the producer table under "Scraping is queue-driven" in CLAUDE.md does not.
 - **Noted**: 2026-11-23
+
+### Make pr_wait keep waiting for required checks after the Codex window closes
+
+- **ID**: IMP-409
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `main()` in `scripts/pr_wait.py` (the wait loop that breaks on `codex_settled`, and the `if pending:` "Still running" return)
+- **Why**: The loop stops as soon as the Codex window settles. With a required check still pending, the merge path prints "Still running: ... Re-run once they finish." and exits 1 without merging, so an owner's "merge it when it's green" needs a hand re-run (#1488, 2026-11-24: Python Tests (Linux) outlasted the window). The loop's comment says the wait would "strand a still-running gate here instead of handing it to --auto", but `gh pr merge --auto` is not used (module docstring, and the comment above the merge call), so the comment's reason does not apply. Wanted: keep polling until no required check is pending, within the existing `--timeout`, then merge or report.
+- **Noted**: 2026-11-24

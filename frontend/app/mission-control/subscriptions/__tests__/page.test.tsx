@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactElement, ReactNode } from 'react';
 import type { SubscriptionMetrics } from '@/lib/admin/subscription-metrics';
+import { flatten } from '@/test/flatten';
 
 const getSubscriptionMetrics = vi.fn();
 vi.mock('@/lib/admin/subscription-metrics', async (importOriginal) => {
@@ -40,6 +41,16 @@ function textOf(node: ReactNode): string {
   }
   return '';
 }
+
+/** The visible text of the one card carrying `label`, so a figure is read beside its own label. */
+function cardText(tree: ReactNode, label: string): string {
+  const card = flatten(tree).find((el) => (el.props as { label?: unknown }).label === label);
+  expect(card, `no card labelled ${label}`).toBeDefined();
+  return textOf(card);
+}
+
+// Oct 1 at midnight in Phoenix: where the September forecast's month window ends.
+const SEPTEMBER_END = Date.UTC(2026, 9, 1, 7) / 1000;
 
 function metrics(over: Partial<SubscriptionMetrics> = {}): SubscriptionMetrics {
   const rate = { rate: 0.5, observed: 10, sample: 20, excluded: 0, isFallback: false };
@@ -86,6 +97,16 @@ function metrics(over: Partial<SubscriptionMetrics> = {}): SubscriptionMetrics {
       netMrr: 189.84,
       avgLifetimeMonths: 6.2,
       ltv: 42.16,
+    },
+    cashForecast: {
+      available: true,
+      renewalRate: rate,
+      conversion: { month: rate, year: rate },
+      windows: {
+        week: { end: SEPTEMBER_END - 19 * 86_400, renewals: 40, trials: 25.5, newTrials: null, total: 65.5 },
+        fortnight: { end: SEPTEMBER_END - 12 * 86_400, renewals: 80, trials: 25.5, newTrials: 30.25, total: 135.75 },
+        month: { end: SEPTEMBER_END, renewals: 120.1, trials: 25.5, newTrials: 60.4, total: 206 },
+      },
     },
     trialsByMonth: {
       available: true,
@@ -329,9 +350,10 @@ describe('SubscriptionsDashboardPage', () => {
         monthProjection: { ...base.monthProjection, avgLifetimeMonths: null, ltv: null },
       })
     );
-    const text = textOf(await SubscriptionsDashboardPage());
-    expect(text).toContain('not measurable');
-    expect(text).not.toContain('$0.00');
+    // Scoped to the card, since a forecast part can genuinely be $0.00.
+    const ltv = cardText(await SubscriptionsDashboardPage(), 'LTV');
+    expect(ltv).toContain('not measurable');
+    expect(ltv).not.toContain('$0.00');
   });
 
   it('does not show the gained-and-lost or signup-value tables', async () => {
@@ -362,5 +384,63 @@ describe('SubscriptionsDashboardPage', () => {
     const text = textOf(await SubscriptionsDashboardPage());
     expect(text).toMatch(/Trials by Month[^:]*could not be loaded/);
     expect(text).not.toContain('September 2026: 0');
+  });
+
+  it('forecasts each window on its own card, after the fee, with what the money comes from', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const tree = await SubscriptionsDashboardPage();
+    expect(textOf(tree)).toMatch(/Forecast[^$]*after Stripe's fee/);
+
+    const week = cardText(tree, 'Next 7 Days');
+    expect(week).toContain('$65.50');
+    expect(week).toContain('renewals $40.00 · trials $25.50');
+    // No trial that has yet to start can finish inside a week.
+    expect(week).not.toContain('new trials');
+
+    const fortnight = cardText(tree, 'Next 14 Days');
+    expect(fortnight).toContain('$135.75');
+    expect(fortnight).toContain('renewals $80.00 · trials $25.50 · new trials $30.25');
+
+    const month = cardText(tree, 'Rest of September');
+    expect(month).toContain('$206.00');
+    expect(month).toContain('through Sep 30 · renewals $120.10 · trials $25.50 · new trials $60.40');
+  });
+
+  it('marks the forecast unavailable rather than printing its zeros', async () => {
+    const base = metrics();
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({
+        cashForecast: { ...base.cashForecast, available: false },
+        errors: ['lifetime paid invoices: stripe unavailable'],
+      })
+    );
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toMatch(/Forecast[^$]*could not be loaded/);
+    expect(text).toContain('the data this forecast is built from');
+    expect(text).not.toContain('Next 7 Days');
+    expect(text).not.toContain('Rest of September');
+  });
+
+  it('names every section by the month it measured when the page is stamped after midnight', async () => {
+    // The month window was fixed before the Stripe reads; the stamp came after them,
+    // a few seconds into October in Phoenix.
+    getSubscriptionMetrics.mockReturnValue(metrics({ generatedAt: '2026-10-01T07:00:05.000Z' }));
+    const tree = await SubscriptionsDashboardPage();
+    expect(cardText(tree, 'Rest of September')).toContain('through Sep 30');
+    const text = textOf(tree);
+    expect(text).toContain('trials finishing in September');
+    expect(text).toContain('September so far');
+    expect(text).not.toContain('October');
+  });
+
+  it('names the measured month from the window when the forecast is unavailable too', async () => {
+    const base = metrics();
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({ generatedAt: '2026-10-01T07:00:05.000Z', cashForecast: { ...base.cashForecast, available: false } })
+    );
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('trials finishing in September');
+    expect(text).toContain('September so far');
+    expect(text).not.toContain('October');
   });
 });
