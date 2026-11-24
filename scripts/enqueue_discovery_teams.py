@@ -76,7 +76,7 @@ def enqueue_team(supabase, team_id_master, team_name, provider_id, provider_team
     """Call enqueue_scrape_request RPC at priority 3.
 
     scrape_requests.game_date is NOT NULL, so we pass today's date as a placeholder.
-    The processor scrapes the team's full schedule (±90 days from this anchor) which
+    The processor scrapes from scrape_start_date(today) to 90 days after today, which
     covers everything discovery cares about. The RPC's UPDATE branch uses COALESCE,
     so existing pending rows keep their original game_date when upserted.
     """

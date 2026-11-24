@@ -25,7 +25,13 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from src.etl.bulk_ops import bulk_update_last_scraped_at, call_rpc_with_fallback
-from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError, get_waf_breaker
+from src.scrapers.gotsport import (
+    GotSportScraper,
+    TeamNotFoundError,
+    WAFBlockedError,
+    get_waf_breaker,
+    scrape_start_date,
+)
 from src.utils.placeholder_team_names import is_placeholder_team_name
 from src.utils.team_utils import scrape_excluded_birth_years
 from supabase import create_client
@@ -150,8 +156,7 @@ async def _scrape_team_concurrent(
     semaphore: Semaphore,
     scraper: GotSportScraper,
     team: Dict,
-    since_date: Optional[date],
-    scrape_dates_cache: Dict[str, Optional[datetime]],
+    since_date: date,
     file_lock: threading.Lock,
     output_file_handle,
     log_buffer: List[Dict[str, Any]],
@@ -171,12 +176,7 @@ async def _scrape_team_concurrent(
         team_master_id = team.get("team_id_master")
 
         try:
-            # Determine since_date for this team
-            if since_date:
-                team_since_date = datetime.combine(since_date, datetime.min.time())
-            else:
-                # Use cached scrape date
-                team_since_date = scrape_dates_cache.get(team_master_id)
+            team_since_date = datetime.combine(since_date, datetime.min.time())
 
             # Run synchronous scraper in thread pool (since requests is sync)
             game_data_list = await asyncio.to_thread(scraper.scrape_team_games, team_id, since_date=team_since_date)
@@ -292,7 +292,6 @@ async def scrape_games(
 
     OPTIMIZED with:
     - Concurrent scraping (async with semaphore)
-    - Bulk fetch of scrape dates
     - Batched logging
     - Reduced file I/O
 
@@ -302,7 +301,7 @@ async def scrape_games(
         limit_teams: Limit number of teams to scrape (for testing)
         null_teams_only: Only scrape teams with NULL last_scraped_at (bootstrap mode)
         include_recent: Include teams scraped within last 7 days (override default filter)
-        since_date: Override since_date for scraping (for NULL teams)
+        since_date: Earliest game date to read (default: the earlier of Aug 1 and 90 days ago)
         auto_import: Automatically import scraped games after scraping completes
         concurrency: Number of concurrent scrapes (default: 5; CI workflow passes 20 per shard)
     """
@@ -357,8 +356,6 @@ async def scrape_games(
     )
 
     console.print(f"[cyan]Found {len(teams)} teams[/cyan]")
-    if not null_teams_only:
-        console.print("[dim]Each team will use its cached last_scraped_at for incremental updates[/dim]")
 
     # Filter out U8/U9 and U20+ teams (PitchRank supports U10-U19)
     len(teams)
@@ -410,27 +407,9 @@ async def scrape_games(
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
     if since_date:
         console.print(f"[cyan]Using override since_date: {since_date}[/cyan]\n")
-    elif not null_teams_only:
-        console.print("[dim]Using per-team last_scraped_at for incremental scraping[/dim]\n")
     else:
-        console.print()
-
-    # The team fetch already returned `last_scraped_at` on every row, so the
-    # scrape-date cache is built in-memory — no extra round-trips.
-    scrape_dates_cache: Dict[str, Optional[datetime]] = {}
-    for t in teams:
-        tid = t.get("team_id_master")
-        if not tid:
-            continue
-        last_scraped = t.get("last_scraped_at")
-        if last_scraped:
-            try:
-                scrape_dates_cache[tid] = datetime.fromisoformat(last_scraped.replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                scrape_dates_cache[tid] = None
-        else:
-            scrape_dates_cache[tid] = None
-    console.print(f"[green]✓[/green] Scrape-date cache built for {len(scrape_dates_cache)} teams\n")
+        since_date = scrape_start_date()
+        console.print(f"[dim]Reading every team's games from {since_date}[/dim]\n")
 
     # Set up output file for incremental saving
     if not output_file:
@@ -468,7 +447,6 @@ async def scrape_games(
                     scraper,
                     team,
                     since_date,
-                    scrape_dates_cache,
                     file_lock,
                     output_file_handle,
                     log_buffer,
@@ -590,7 +568,7 @@ def main():
         "--since-date",
         type=str,
         default=None,
-        help="Override since_date for scraping (YYYY-MM-DD format, used for NULL teams)",
+        help="Earliest game date to read (YYYY-MM-DD; default: the earlier of Aug 1 and 90 days ago)",
     )
     parser.add_argument(
         "--auto-import", action="store_true", help="Automatically import scraped games after scraping completes"

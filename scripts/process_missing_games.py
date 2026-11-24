@@ -32,7 +32,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scripts.drain_queue import _fetch_topup_teams
 from src.etl.bulk_ops import bulk_update_last_scraped_at
-from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError
+from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError, scrape_start_date
 
 # Load environment variables
 load_dotenv()
@@ -195,7 +195,7 @@ class MissingGamesProcessor:
             return None
 
     def scrape_games_for_date(self, provider_code: str, team_id: str, game_date: str) -> List[Dict]:
-        """Scrape games for a specific team within a 181-day window (±90 days from selected date)"""
+        """Scrape a team's games from scrape_start_date(selected date) to 90 days after it."""
         scraper = self.scrapers.get(provider_code)
         if not scraper:
             raise ValueError(f"No scraper available for provider: {provider_code}")
@@ -203,16 +203,12 @@ class MissingGamesProcessor:
         # Parse the target date
         target_date = datetime.strptime(game_date, "%Y-%m-%d").date()
 
-        # Define the 181-day window: 90 days before, target date, 90 days after
-        date_window_start = target_date - timedelta(days=90)
+        date_window_start = scrape_start_date(target_date)
         date_window_end = target_date + timedelta(days=90)
-
-        # Scrape with a date range starting 90 days before (to catch timezone issues)
-        # The scraper uses since_date, so we'll scrape from 90 days before and filter
         start_date = datetime.combine(date_window_start, datetime.min.time())
 
         logger.info(
-            f"Scraping games for team {team_id} in 181-day window: "
+            f"Scraping games for team {team_id} in window: "
             f"{date_window_start} to {date_window_end} (selected date: {game_date})"
         )
 
@@ -220,7 +216,6 @@ class MissingGamesProcessor:
             # Use the scraper's method to get games (only takes since_date, not until_date)
             games = scraper.scrape_team_games(team_id, since_date=start_date)
 
-            # Filter to games within the 181-day window
             filtered_games = []
             for game in games:
                 # GameData.game_date is a string in 'YYYY-MM-DD' format
@@ -229,7 +224,6 @@ class MissingGamesProcessor:
                     # Parse date for comparison only (don't modify the original string)
                     game_dt = datetime.strptime(game.game_date, "%Y-%m-%d").date()
 
-                    # Include games within the 181-day window
                     if date_window_start <= game_dt <= date_window_end:
                         # Use the EXACT game_date string from the scraper (no manipulation)
                         # This ensures timezone issues don't cause date shifts
@@ -275,9 +269,7 @@ class MissingGamesProcessor:
                     )
                     continue
 
-            logger.info(
-                f"Found {len(filtered_games)} games in 181-day window ({date_window_start} to {date_window_end})"
-            )
+            logger.info(f"Found {len(filtered_games)} games in window ({date_window_start} to {date_window_end})")
             if filtered_games:
                 game_dates = sorted(set(g["game_date"] for g in filtered_games))
                 logger.info(f"Game dates found: {', '.join(game_dates)}")
@@ -481,7 +473,6 @@ class MissingGamesProcessor:
                 else:
                     raise ValueError(f"No scraper available for provider: {provider_code}")
 
-            # Scrape games for the date (±90 days window)
             # If team ID returns 404, try alternative IDs from team_alias_map
             tried_team_ids = []
             games = None
@@ -529,8 +520,7 @@ class MissingGamesProcessor:
                 self.update_request_status(request_id, "completed", games_found=0)
 
             logger.info(
-                f"Successfully processed request {request_id}: "
-                f"{len(games)} games found in 181-day window, buffered for import"
+                f"Successfully processed request {request_id}: {len(games)} games found in window, buffered for import"
             )
 
             self.stats["successful"] += 1
@@ -659,7 +649,7 @@ class MissingGamesProcessor:
 
         Selects with drain_queue's top-up rules, so both drainers pick the same
         teams. Each team is scraped as if requested for today, over the same
-        181-day window as a queue request.
+        window as a queue request.
         """
         provider_id = self.scrapers["gotsport"]._get_provider_id()
         teams = _fetch_topup_teams(self.supabase, provider_id, limit, set())

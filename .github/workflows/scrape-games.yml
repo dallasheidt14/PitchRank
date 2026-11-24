@@ -41,7 +41,7 @@ on:
         type: boolean
         default: false
       since_date:
-        description: 'Override since_date (YYYY-MM-DD format, for NULL teams)'
+        description: 'Earliest game date to read (YYYY-MM-DD; default: the earlier of Aug 1 and 90 days ago)'
         required: false
         type: string
         default: ''

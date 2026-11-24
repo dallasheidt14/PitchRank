@@ -14,7 +14,7 @@ import random
 import re
 import threading
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -57,7 +57,7 @@ from src.tournaments.alias_writer import enqueue_match_review, upsert_team_alias
 from src.utils.gotsport_team_details import WAF_COOLDOWN_SEC as _WAF_COOLDOWN_DEFAULT
 from src.utils.gotsport_team_details import is_cloudfront_waf_block as _is_cloudfront_waf_block
 from src.utils.provider_ids import clean_provider_id
-from src.utils.team_utils import CURRENT_YEAR
+from src.utils.team_utils import CURRENT_YEAR, _soccer_season_year
 
 __all__ = [
     "CERTIFI_AVAILABLE",
@@ -68,6 +68,7 @@ __all__ = [
     "TeamNotFoundError",
     "WAFBlockedError",
     "get_waf_breaker",
+    "scrape_start_date",
 ]
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,19 @@ def _utc_match_date(match_date: str) -> date:
         dt = datetime.fromisoformat(match_date.replace("Z", "+00:00"))
         return dt.astimezone(timezone.utc).date() if dt.tzinfo is not None else dt.date()
     return datetime.strptime(match_date, "%Y-%m-%d").date()
+
+
+def scrape_start_date(anchor: Optional[date] = None, today: Optional[date] = None) -> date:
+    """Earliest game date a team scrape reads: Aug 1 of this season, or 90 days before `anchor` if earlier.
+
+    `anchor` is the date the scrape is for: a queued request's date, else today. Reaching
+    90 days back keeps a request's own date covered, and keeps each Aug 1 from cutting off
+    the season that just ended. Never the team's last scrape: no record says which games
+    an earlier scrape actually stored.
+    """
+    today = today or date.today()
+    anchor = anchor or today
+    return min(date(_soccer_season_year(today), 8, 1), anchor - timedelta(days=90))
 
 
 class TeamNotFoundError(Exception):
@@ -398,7 +412,7 @@ class GotSportScraper(BaseScraper):
 
         Args:
             team_id: GotSport team ID
-            since_date: Only scrape games after this date (for incremental updates)
+            since_date: Earliest game date kept; None sets no date cutoff (the newest-30 cap still applies)
 
         Returns:
             List of GameData objects
@@ -410,21 +424,8 @@ class GotSportScraper(BaseScraper):
             logger.error(f"Invalid team_id: {team_id}")
             return []
 
-        # For incremental scraping: use last scrape date if available
-        # For first-time scraping: use October 17, 2025 baseline
-        # If since_date is explicitly None, get all games
-        if since_date is None:
-            # Explicitly None means get all games (no date filter)
-            since_date_obj = None
-            logger.debug("Fetching all games (no date filter)")
-        elif since_date:
-            # Use the last scrape date (incremental update)
-            since_date_obj = since_date.date() if isinstance(since_date, datetime) else since_date
-            logger.debug(f"Incremental scrape: fetching games since {since_date_obj}")
-        else:
-            # First-time scrape: use October 17, 2025 baseline
-            since_date_obj = date(2025, 10, 17)
-            logger.debug(f"First-time scrape: fetching games since {since_date_obj} (Oct 17, 2025 baseline)")
+        since_date_obj = since_date.date() if isinstance(since_date, datetime) else since_date
+        logger.debug(f"Fetching games since {since_date_obj}" if since_date_obj else "Fetching all games")
 
         # API endpoint
         api_url = f"{self.BASE_URL}/teams/{normalized_team_id}/matches"
