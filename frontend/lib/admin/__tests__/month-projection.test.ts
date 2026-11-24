@@ -4,11 +4,14 @@ import { makeStripeInvoice as invoice, makeStripeSubscription as sub } from '@/t
 import { SECONDS_PER_DAY } from '../constants';
 
 import {
+  buildCashForecast,
   buildMonthProjection,
   collectPaidSubscriptionIds,
   computeLifetimeChurn,
+  computeLifetimeConversionByPlan,
   computeMonthCohort,
   computePaidChurnRate,
+  computeRenewalCollectionRate,
   computeRetention,
   computeTrialConversionRate,
   computeTrialProjection,
@@ -17,6 +20,8 @@ import {
   countTrialsByMonth,
   FALLBACK_CHURN_RATE,
   FALLBACK_CONVERSION_RATE,
+  FALLBACK_RENEWAL_RATE,
+  netOfStripeFee,
   type CohortWindow,
   type RateEstimate,
 } from '../month-projection';
@@ -768,5 +773,330 @@ describe('buildMonthProjection', () => {
     const result = build({ churn: rate(0) });
     expect(result.avgLifetimeMonths).toBeNull();
     expect(result.ltv).toBeNull();
+  });
+});
+
+describe('netOfStripeFee', () => {
+  it('takes 2.9% + 30¢ off each plan price', () => {
+    expect(netOfStripeFee(699)).toBe(649);
+    expect(netOfStripeFee(6999)).toBe(6766);
+  });
+
+  it('takes nothing from no charge at all', () => {
+    expect(netOfStripeFee(0)).toBe(0);
+  });
+});
+
+describe('computeRenewalCollectionRate', () => {
+  // Midnight Sept 16 in Phoenix; renewals due before Aug 26 have settled.
+  const now = new Date(Date.UTC(2026, 8, 16, 7));
+  const d = (m: number, day: number) => Date.UTC(2026, m - 1, day, 7) / 1000;
+  // Anchored May 10, so renewals fall due Jun 10, Jul 10 and Aug 10 before the settle window.
+  const monthly = (id: string, over: Parameters<typeof sub>[0] = {}) =>
+    sub({ id, interval: 'month', billingCycleAnchor: d(5, 10), email: `${id}@example.com`, ...over });
+  const renewal = (id: string, created: number, over: Parameters<typeof invoice>[0] = {}) =>
+    invoice({ subscription: id, created, ...over });
+  const measure = (
+    subs: Stripe.Subscription[],
+    invoices: Stripe.Invoice[],
+    { at = now, excluded = NONE }: { at?: Date; excluded?: Set<string> } = {}
+  ) => {
+    const { observed, sample } = computeRenewalCollectionRate(
+      subs,
+      invoices,
+      at,
+      new Set(subs.map((s) => s.id)),
+      excluded
+    );
+    return { observed, sample };
+  };
+
+  it('scores each renewal date a paid invoice collected', () => {
+    const invoices = [renewal('a', d(6, 10)), renewal('a', d(7, 10)), renewal('a', d(8, 10))];
+    expect(measure([monthly('a')], invoices)).toEqual({ observed: 3, sample: 3 });
+  });
+
+  it('counts a renewal date with no paid invoice as a miss', () => {
+    expect(measure([monthly('b')], [renewal('b', d(6, 10))])).toEqual({ observed: 1, sample: 2 });
+  });
+
+  it('counts a subscription that stays open unpaid as one miss, however long it stays open', () => {
+    const stuck = monthly('stuck', { status: 'unpaid', billingCycleAnchor: d(4, 10) });
+    expect(measure([stuck], [])).toEqual({ observed: 0, sample: 1 });
+    expect(measure([stuck], [], { at: new Date(Date.UTC(2026, 9, 16, 7)) })).toEqual({ observed: 0, sample: 1 });
+  });
+
+  it('stops at the first miss even when a later renewal was paid', () => {
+    expect(measure([monthly('c')], [renewal('c', d(6, 10)), renewal('c', d(8, 10))])).toEqual({
+      observed: 1,
+      sample: 2,
+    });
+  });
+
+  it('leaves out renewals after a cancellation asked for more than a week ahead', () => {
+    const left = monthly('d', { status: 'canceled', canceledAt: d(7, 1), endedAt: d(7, 10) });
+    expect(measure([left], [renewal('d', d(6, 10))])).toEqual({ observed: 1, sample: 1 });
+  });
+
+  it('leaves out renewals after service ended, even with no cancellation time recorded', () => {
+    const ended = monthly('gone', { status: 'canceled', canceledAt: null, endedAt: d(7, 1) });
+    expect(measure([ended], [renewal('gone', d(6, 10))])).toEqual({ observed: 1, sample: 1 });
+  });
+
+  it('counts a cancellation asked for inside the last week as a missed renewal', () => {
+    const late = monthly('e', { status: 'canceled', canceledAt: d(7, 5), endedAt: d(7, 10) });
+    expect(measure([late], [renewal('e', d(6, 10))])).toEqual({ observed: 1, sample: 2 });
+  });
+
+  it('waits out retries before scoring a renewal date', () => {
+    // Anchored Jun 1: Sept 1 is due but inside the settle window, so it is not a miss yet.
+    const recent = monthly('f', { billingCycleAnchor: d(6, 1) });
+    expect(measure([recent], [renewal('f', d(7, 1)), renewal('f', d(8, 1))])).toEqual({ observed: 2, sample: 2 });
+  });
+
+  it('leaves out internal accounts', () => {
+    const owner = monthly('g', { email: 'owner@example.com' });
+    const rate = computeRenewalCollectionRate(
+      [owner],
+      [renewal('g', d(6, 10))],
+      now,
+      new Set(['g']),
+      new Set(['owner@example.com'])
+    );
+    expect(rate).toMatchObject({ observed: 0, sample: 0, excluded: 1 });
+  });
+
+  it('matches an invoice created within two days of the date, not three', () => {
+    const invoices = [
+      renewal('two', d(6, 12)),
+      renewal('two', d(7, 10)),
+      renewal('two', d(8, 10)),
+      renewal('three', d(6, 13)),
+    ];
+    expect(measure([monthly('two'), monthly('three')], invoices)).toEqual({ observed: 3, sample: 4 });
+  });
+
+  it('asks the matched invoice for real payment or a coupon, as activation does', () => {
+    const invoices = [
+      renewal('free', d(6, 10), { amountPaid: 0, amountDue: 0, total: 0 }),
+      renewal('coupon', d(6, 10), { amountPaid: 0, amountDue: 0, total: 0, discounts: ['di_x'] }),
+    ];
+    expect(measure([monthly('free'), monthly('coupon')], invoices)).toEqual({ observed: 1, sample: 3 });
+  });
+
+  it('does not take a subscription-creation invoice for a renewal', () => {
+    const invoices = [renewal('h', d(6, 10), { billingReason: 'subscription_create' })];
+    expect(measure([monthly('h')], invoices)).toEqual({ observed: 0, sample: 1 });
+  });
+
+  it("holds a 31st anchor to a shorter month's last day, then returns to the 31st", () => {
+    const anchor = Date.UTC(2026, 0, 31, 7) / 1000;
+    const invoices = [
+      renewal('eom', Date.UTC(2026, 1, 28, 7) / 1000),
+      renewal('eom', Date.UTC(2026, 2, 31, 7) / 1000),
+      renewal('eom', Date.UTC(2026, 3, 30, 7) / 1000),
+    ];
+    const at = new Date(Date.UTC(2026, 4, 25, 7));
+    expect(measure([monthly('eom', { billingCycleAnchor: anchor })], invoices, { at })).toEqual({
+      observed: 3,
+      sample: 3,
+    });
+  });
+
+  it('falls back below the minimum sample and measures from it upward', () => {
+    const collected = [renewal('a', d(6, 10)), renewal('a', d(7, 10)), renewal('a', d(8, 10))];
+    const few = computeRenewalCollectionRate([monthly('a')], collected, now, new Set(['a']), NONE);
+    expect(few).toMatchObject({ isFallback: true, rate: FALLBACK_RENEWAL_RATE });
+    const enough = computeRenewalCollectionRate(
+      [monthly('a'), monthly('b')],
+      [...collected, renewal('b', d(6, 10))],
+      now,
+      new Set(['a', 'b']),
+      NONE
+    );
+    expect(enough).toMatchObject({ isFallback: false, observed: 4, sample: 5, rate: 0.8 });
+  });
+
+  it('ignores annual plans and subscriptions that never paid', () => {
+    const annual = sub({ id: 'yr', interval: 'year', billingCycleAnchor: d(5, 10) });
+    const never = monthly('np');
+    const rate = computeRenewalCollectionRate([annual, never], [renewal('yr', d(6, 10))], now, new Set(['yr']), NONE);
+    expect(rate).toMatchObject({ observed: 0, sample: 0 });
+  });
+});
+
+describe('computeLifetimeConversionByPlan', () => {
+  const nowSec = Date.UTC(2026, 8, 16, 7) / 1000;
+  const day = SECONDS_PER_DAY;
+
+  it('measures each plan over every trial that has ended, however long ago', () => {
+    const subs = [
+      sub({ id: 'm1', interval: 'month', trialEnd: nowSec - 10 * day }),
+      sub({ id: 'm2', interval: 'month', trialEnd: nowSec - 400 * day }),
+      sub({ id: 'm3', interval: 'month', trialEnd: nowSec - 5 * day }),
+      sub({ id: 'm4', interval: 'month', status: 'trialing', trialEnd: nowSec + 3 * day }),
+      sub({ id: 'y1', interval: 'year', trialEnd: nowSec - 20 * day }),
+      sub({ id: 'y2', interval: 'year', trialEnd: nowSec - 30 * day }),
+    ];
+    const paid = new Set(['m1', 'm2', 'm4', 'y1']);
+    const { month, year } = computeLifetimeConversionByPlan(subs, paid, nowSec, NONE);
+    expect(month).toMatchObject({ observed: 2, sample: 3 });
+    expect(year).toMatchObject({ observed: 1, sample: 2 });
+  });
+});
+
+describe('buildCashForecast', () => {
+  // Midnight Sept 16 in Phoenix: the month window runs 15 days, to Oct 1.
+  const now = new Date(Date.UTC(2026, 8, 16, 7));
+  const nowSec = now.getTime() / 1000;
+  const day = SECONDS_PER_DAY;
+  const estimate = (rate: number): RateEstimate => ({ rate, observed: 0, sample: 0, excluded: 0, isFallback: false });
+  const forecast = (
+    subs: Stripe.Subscription[],
+    {
+      at = now,
+      excludedEmails = NONE,
+      paidSubIds = new Set(subs.map((s) => s.id)),
+      monthRate = 0.5,
+    }: { at?: Date; excludedEmails?: Set<string>; paidSubIds?: Set<string>; monthRate?: number } = {}
+  ) =>
+    buildCashForecast({
+      now: at,
+      subs,
+      paidSubIds,
+      conversion: { month: estimate(monthRate), year: estimate(0.4) },
+      renewalRate: estimate(0.9),
+      excludedEmails,
+    });
+  const trial = (id: string, over: Parameters<typeof sub>[0] = {}) =>
+    sub({ id, status: 'trialing', trialEnd: nowSec + 2 * day, ...over });
+
+  it('dates a renewal on its period end, at the collection rate, in every window that holds it', () => {
+    const { week, fortnight, month } = forecast([sub({ id: 'r', currentPeriodEnd: nowSec + 4 * day })]).windows;
+    // 649 net × 0.9.
+    expect([week.renewals, fortnight.renewals, month.renewals]).toEqual([5.84, 5.84, 5.84]);
+  });
+
+  it('leaves a charge due exactly at the end of a window to the next one', () => {
+    const { week, fortnight } = forecast([sub({ id: 'edge', currentPeriodEnd: nowSec + 7 * day })]).windows;
+    expect(week.renewals).toBe(0);
+    expect(fortnight.renewals).toBe(5.84);
+  });
+
+  it('leaves out a renewal whose cancellation is scheduled, either way it was set', () => {
+    const subs = [
+      sub({ id: 'flag', cancelAtPeriodEnd: true, currentPeriodEnd: nowSec + 4 * day }),
+      sub({ id: 'date', cancelAt: nowSec + 4 * day, currentPeriodEnd: nowSec + 4 * day }),
+    ];
+    expect(forecast(subs).windows.week.renewals).toBe(0);
+  });
+
+  it('counts a trial on its end at its own plan rate, set to cancel or not', () => {
+    expect(forecast([trial('m', { interval: 'month', unitAmount: 699 })]).windows.week.trials).toBe(3.25);
+    const leaving = trial('y', { interval: 'year', unitAmount: 6999, cancelAtPeriodEnd: true });
+    // 6766 net × 0.4.
+    expect(forecast([leaving]).windows.week.trials).toBe(27.06);
+  });
+
+  it('leaves out internal accounts', () => {
+    const owner = trial('owner', { email: 'owner@example.com' });
+    expect(forecast([owner], { excludedEmails: new Set(['owner@example.com']) }).windows.week.trials).toBe(0);
+  });
+
+  it('forecasts no renewal for a subscriber who has never paid', () => {
+    // A declined first charge leaves the subscription past due; its trial already counts as not converted.
+    const declined = sub({ id: 'declined', status: 'past_due', currentPeriodEnd: nowSec + 4 * day });
+    expect(forecast([declined], { paidSubIds: NONE }).windows.week.renewals).toBe(0);
+    expect(forecast([declined]).windows.week.renewals).toBe(5.84);
+  });
+
+  it('books a trial ending in the window as a trial, never also as a renewal, and nothing for unpaid', () => {
+    const ending = trial('ending', { trialEnd: nowSec + 3 * day });
+    const unpaid = sub({ id: 'unpaid', status: 'unpaid', currentPeriodEnd: nowSec + 4 * day });
+    const { week } = forecast([ending, unpaid]).windows;
+    expect(week.renewals).toBe(0);
+    expect(week.trials).toBe(3.25);
+  });
+
+  it('expects no charge from a trial cancelled outright before its end', () => {
+    const cancelled = sub({
+      id: 'cancelled',
+      status: 'canceled',
+      trialStart: nowSec - 3 * day,
+      trialEnd: nowSec + 4 * day,
+      canceledAt: nowSec - day,
+      endedAt: nowSec - day,
+    });
+    expect(forecast([cancelled]).windows.week.trials).toBe(0);
+  });
+
+  it('takes the fee once per charge: once for two seats billed together, twice for two subscriptions', () => {
+    const seats = sub({ id: 'seats', currentPeriodEnd: nowSec + 4 * day });
+    (seats.items.data as unknown[]).push({
+      id: 'si_second',
+      quantity: 1,
+      current_period_end: nowSec + 4 * day,
+      price: { unit_amount: 699, recurring: { interval: 'month' } },
+    });
+    // (1398 − 71) × 0.9, against 2 × 649 × 0.9.
+    expect(forecast([seats]).windows.week.renewals).toBe(11.94);
+    const pair = [
+      sub({ id: 'one', currentPeriodEnd: nowSec + 4 * day }),
+      sub({ id: 'two', currentPeriodEnd: nowSec + 5 * day }),
+    ];
+    expect(forecast(pair).windows.week.renewals).toBe(11.68);
+  });
+
+  it('adds trials yet to start at the last fortnight of starts, where one can finish in time', () => {
+    const started = [
+      sub({ id: 'in', status: 'canceled', trialStart: nowSec - 13 * day, trialEnd: nowSec - 6 * day }),
+      sub({ id: 'out', status: 'canceled', trialStart: nowSec - 15 * day, trialEnd: nowSec - 8 * day }),
+    ];
+    const { week, fortnight, month } = forecast(started).windows;
+    // 324.5 cents a trial over 14 days: 7 days of starts finish within 14 days, 8 within the 15 to Oct 1.
+    expect(week.newTrials).toBeNull();
+    expect(fortnight.newTrials).toBe(1.62);
+    expect(month.newTrials).toBe(1.85);
+  });
+
+  it('adds no new trials to a month with a week or less left', () => {
+    const started = [sub({ id: 'in', status: 'canceled', trialStart: nowSec - 3 * day, trialEnd: nowSec + 4 * day })];
+    const lastWeek = new Date(Date.UTC(2026, 8, 24, 7));
+    expect(forecast(started, { at: lastWeek }).windows.month.newTrials).toBeNull();
+  });
+
+  it('skips a subscription with no plan rather than turning every sum into NaN', () => {
+    const base = trial('base', { trialStart: nowSec - 3 * day, trialEnd: nowSec + 4 * day });
+    const planless = trial('planless', { trialStart: nowSec - 3 * day, trialEnd: nowSec + 4 * day });
+    (planless.items.data[0].price as { recurring: unknown }).recurring = null;
+    const without = forecast([base]).windows;
+    const withIt = forecast([base, planless]).windows;
+    expect(withIt.week.trials).toBe(without.week.trials);
+    expect(withIt.fortnight.newTrials).toBe(without.fortnight.newTrials);
+    expect(Number.isFinite(withIt.week.trials)).toBe(true);
+    expect(Number.isFinite(withIt.fortnight.newTrials)).toBe(true);
+  });
+
+  it('rounds each part to the cent and totals the rounded parts', () => {
+    const subs = [
+      sub({ id: 'renews', currentPeriodEnd: nowSec + 4 * day }),
+      trial('ends'),
+      sub({ id: 'started', status: 'canceled', trialStart: nowSec - 13 * day, trialEnd: nowSec - 6 * day }),
+    ];
+    expect(forecast(subs).windows.fortnight).toEqual({
+      end: nowSec + 14 * day,
+      renewals: 5.84,
+      trials: 3.25,
+      newTrials: 1.62,
+      total: 10.71,
+    });
+  });
+
+  it('totals the rounded parts even where rounding the whole would add a cent', () => {
+    // Four renewals at 584.1 cents round down to $23.36 and a trial at 310.2 to $3.10: the parts
+    // make $26.46, where the unrounded 2646.6 cents would round up to $26.47.
+    const subs = [1, 2, 3, 4].map((n) => sub({ id: `renews${n}`, currentPeriodEnd: nowSec + n * day }));
+    const { week } = forecast([...subs, trial('ends')], { monthRate: 0.478 }).windows;
+    expect(week).toMatchObject({ renewals: 23.36, trials: 3.1, total: 26.46 });
   });
 });

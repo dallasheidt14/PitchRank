@@ -137,8 +137,10 @@ in its base but count as not churned, because they paid and never cancelled. Gro
 at the start of last month and of this one from `trial_end`/`start_date` and the cancellation
 request time (`canceled_at`), priced at today's plans, so a past price change skews the earlier
 figure. It leaves `unpaid` out, as `mrr` does, because Stripe records no time at which an unpaid
-subscription stopped paying; and a cancellation set through `cancel_at` alone may count until
-service ends, since Stripe does not document `canceled_at` for that path.
+subscription stopped paying. Stripe does not document `canceled_at` for a cancellation set through
+`cancel_at` alone, but measured on 2026-11-24, every such cancellation in live Stripe data (flexible
+billing, from the Customer Portal) carried the request time, at or before `ended_at`, so Growth drops
+it when it was requested.
 
 Trials by Month also reads the unbounded status lists (active, trialing, past_due, canceled and
 unpaid), never the 187-day cohort: its first bar is fixed at June 2026 while the cohort window
@@ -148,8 +150,24 @@ comes back in two of them. It counts by `trial_start` with the same month bounds
 internal-email exclusion as the Last Month cards. A trial in a status outside those five (`paused`,
 from a no-card trial created in the Stripe Dashboard) is not counted; checkout cannot create one.
 
-`.turbo/reports/2026-09-04-stripe-month-projection-baseline.md` carries the dated figures and the
-derivation. Read numbers from there rather than from this file, and re-measure before quoting them.
+The Forecast section (`buildCashForecast`) estimates the cash Stripe collects over the next 7 days,
+the next 14 days and the rest of the month, after Stripe's fee (`netOfStripeFee`). Like Trials by
+Month it reads the unbounded status lists keyed by id, plus the lifetime paid invoices, and is
+unavailable when any of them failed; the 187-day cohort and paid invoices play no part. Renewals are
+dated at each item's `current_period_end`, skip scheduled cancellations, and count only for
+subscribers who have paid before, the population `computeRenewalCollectionRate` measures (its doc
+comment has the scoring rules), so a past-due subscription whose first charge was declined books no
+renewal. That rate sees only paid invoices, so a miss means no paid renewal invoice near the rebuilt
+date, not a failed attempt. Current trials are dated at `trial_end` at their plan's lifetime trial →
+paid rate (`computeLifetimeConversionByPlan`), and trials already set to cancel count at that rate
+too, because it was measured over every trial, including those that cancelled midway. Month
+Projection's New Subs counts them as lost instead, so the two sections differ there on purpose.
+Trials yet to start come from the trailing 14 days' pace. Each rate falls back below
+`MIN_COHORT_SAMPLE`: conversion to `FALLBACK_CONVERSION_RATE`, renewal collection to
+`FALLBACK_RENEWAL_RATE` (one minus the churn fallback).
+
+`.turbo/reports/2026-09-04-stripe-month-projection-baseline.md` carries Month Projection's dated
+figures and the derivation of the fallback rates. Read numbers from there rather than from this file, and re-measure before quoting them.
 
 ## Measuring a shift in the plan mix
 
@@ -225,7 +243,7 @@ That route rests on two Supabase behaviours:
 |---|---|
 | Client, price IDs, webhook event names, field helpers | `frontend/lib/stripe/server.ts` |
 | Shared constants and `getCustomerEmail` | `frontend/lib/admin/constants.ts` |
-| Rates, projection, month cohorts, retention, lifetime churn (pure functions) | `frontend/lib/admin/month-projection.ts` |
+| Rates, projection, month cohorts, retention, lifetime churn, cash forecast (pure functions) | `frontend/lib/admin/month-projection.ts` |
 | Stripe fetching and assembly | `frontend/lib/admin/subscription-metrics.ts` |
 | Admin dashboard page | `frontend/app/mission-control/subscriptions/` |
 | Checkout, checkout-login, webhook, portal, sync routes | `frontend/app/api/stripe/` |
@@ -253,6 +271,11 @@ Dashboard; compute yours from `stripe_api_read` REST lists and ask for theirs on
 `GetSubscriptions` and `GetInvoices` responses run to hundreds of KB and will overflow a tool
 result; they are written to a file instead. Analyse that file with `jq` or a Python script rather
 than reading it, and page with `starting_after` from the last id.
+
+The fee Stripe took on a charge is on its balance transaction (`fee`, `net`). Read it with
+`GetBalanceTransactions` and `type: 'charge'`. Charges checked on 2026-11-24 matched standard US card pricing
+(2.9% + 30¢), which is what `netOfStripeFee` assumes; check there first if the Forecast's fee ever
+looks off.
 
 ## Exercising Stripe routes on a local production build
 

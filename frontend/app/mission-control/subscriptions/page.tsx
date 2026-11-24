@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { TrialsByMonthChart } from '@/components/mission-control/TrialsByMonthChart';
+import type { ForecastWindow } from '@/lib/admin/month-projection';
 import { getSubscriptionMetrics, type AvailableMonthCohort } from '@/lib/admin/subscription-metrics';
 import { BUSINESS_TIMEZONE } from '@/lib/admin/timezone';
 
@@ -39,6 +40,12 @@ function signedDollars(n: number): string {
   return `${n >= 0 ? '+' : '−'}${formatDollars(Math.abs(n))}`;
 }
 
+function forecastParts(period: ForecastWindow): string {
+  const parts = [`renewals ${formatDollars(period.renewals)}`, `trials ${formatDollars(period.trials)}`];
+  if (period.newTrials !== null) parts.push(`new trials ${formatDollars(period.newTrials)}`);
+  return parts.join(' · ');
+}
+
 // Every date on this page is named in BUSINESS_TIMEZONE. Vercel runs with
 // TZ=UTC, so an unzoned format renders the server's calendar day, which is
 // already tomorrow's from 5pm local onward.
@@ -67,12 +74,21 @@ function formatRelative(iso: string): string {
 export default async function SubscriptionsDashboardPage() {
   const metrics = await getSubscriptionMetrics();
   const projection = metrics.monthProjection;
-  const monthName = new Date(metrics.generatedAt).toLocaleDateString('en-US', {
-    month: 'long',
-    timeZone: BUSINESS_TIMEZONE,
-  });
+  const forecast = metrics.cashForecast;
+  // Month Projection, Trials by Month and the Forecast count the month holding
+  // the instant taken before the Stripe reads, and the forecast's month window
+  // ends with that month, so its last second names it. `generatedAt` is stamped
+  // after the reads, so a load spanning midnight at month end would name the
+  // next month instead.
+  const monthLastDay = new Date((forecast.windows.month.end - 1) * 1000);
+  const monthName = monthLastDay.toLocaleDateString('en-US', { month: 'long', timeZone: BUSINESS_TIMEZONE });
   const trialMonthly = metrics.trials.list.filter((row) => row.interval === 'month').length;
   const trialAnnual = metrics.trials.list.filter((row) => row.interval === 'year').length;
+  const forecastThrough = monthLastDay.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: BUSINESS_TIMEZONE,
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -198,6 +214,41 @@ export default async function SubscriptionsDashboardPage() {
                     ? 'not measurable — nobody in the cohort has churned'
                     : `${projection.avgLifetimeMonths.toFixed(1)} month lifetime, first-month churn basis`
                 }
+              />
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-display text-xl font-semibold">Forecast</h2>
+            <span className="text-sm text-muted-foreground">
+              {forecast.available ? "after Stripe's fee" : 'could not be loaded'}
+            </span>
+          </div>
+          {!forecast.available ? (
+            <Card variant="flat">
+              <CardContent className="p-6 text-sm text-muted-foreground">
+                Stripe did not return the data this forecast is built from, so there is nothing to show. The error is
+                listed above.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <KpiCard
+                label="Next 7 Days"
+                value={formatDollars(forecast.windows.week.total)}
+                sub={forecastParts(forecast.windows.week)}
+              />
+              <KpiCard
+                label="Next 14 Days"
+                value={formatDollars(forecast.windows.fortnight.total)}
+                sub={forecastParts(forecast.windows.fortnight)}
+              />
+              <KpiCard
+                label={`Rest of ${monthName}`}
+                value={formatDollars(forecast.windows.month.total)}
+                sub={`through ${forecastThrough} · ${forecastParts(forecast.windows.month)}`}
               />
             </div>
           )}

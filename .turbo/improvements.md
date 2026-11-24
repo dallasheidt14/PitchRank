@@ -3516,4 +3516,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `match_or_create` in `scripts/extract_and_import_tgs_teams.py` (links through `TGSGameMatcher.link_candidate` and writes approved `fuzzy_auto` aliases)
 - **Why**: A 2026-11-23 scan found 1,123 team rows holding two squads' ids (same-day games at different events against different opponents), 135 of them a TGS id on another provider's row still misfiling games this season, most linked by name in the December 2025 TGS bulk import. The import still links by name with no tier check (ECNL vs ECNL RL vs Pre-ECNL) and no comparison of the candidate's schedule with the TGS id's games, so new fused rows can appear. Related: "Tighten the TGS club check where a name match reads the whole age group", "Stop fuzzy alias auto-links from fusing a second squad onto a team row".
+
+### Make pr_wait keep waiting for required checks after the Codex window closes
+
+- **ID**: IMP-409
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `main()` in `scripts/pr_wait.py` (the wait loop that breaks on `codex_settled`, and the `if pending:` "Still running" return)
+- **Why**: The loop stops as soon as the Codex window settles. With a required check still pending, the merge path prints "Still running: ... Re-run once they finish." and exits 1 without merging, so an owner's "merge it when it's green" needs a hand re-run (#1488, 2026-11-24: Python Tests (Linux) outlasted the window). The loop's comment says the wait would "strand a still-running gate here instead of handing it to --auto", but `gh pr merge --auto` is not used (module docstring, and the comment above the merge call), so the comment's reason does not apply. Wanted: keep polling until no required check is pending, within the existing `--timeout`, then merge or report.
 - **Noted**: 2026-11-24
