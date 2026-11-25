@@ -1,6 +1,6 @@
 ---
 name: stripe-billing-data
-description: Reading Stripe subscription and invoice data correctly in PitchRank - where fields actually live in the pinned API version, and the measurement traps that silently produce wrong conversion, churn and MRR numbers. Use for any work touching Stripe here - the admin subscriptions dashboard, checkout, webhook, portal, sync, or reconcile_stripe_subscriptions.py. Also use when asked why a conversion, churn, MRR or subscriber figure looks wrong, or about past-due and failed payments, coupons, discounted or sale checkouts, promotion codes, expiring open checkout sessions, or trials.
+description: Reading Stripe subscription and invoice data correctly in PitchRank - where fields actually live in the pinned API version, and the measurement traps that silently produce wrong conversion, churn and MRR numbers. Use for any work touching Stripe here - the admin subscriptions dashboard, checkout, webhook, portal, sync, or reconcile_stripe_subscriptions.py. Also use when asked why a conversion, churn, MRR or subscriber figure looks wrong, or about past-due and failed payments, coupons, discounted or sale checkouts, promotion codes, expiring open checkout sessions, or trials. Also use when checking a sale checkout on a Vercel preview or making a live Stripe change such as a coupon or webhook events.
 ---
 
 # Stripe Billing Data in PitchRank
@@ -305,8 +305,13 @@ connector is logged out: ask the user to run `/mcp` before anything else, and re
 yourself once it reconnects.
 
 The connector reaches the live account only (`list_available_accounts_or_orgs` returned one live
-context on 2026-11-24). A test-mode checkout therefore needs test keys and test-mode objects
-(prices, coupon, webhook endpoint) on a Vercel preview, set up by the user.
+context on 2026-11-24), and it reads only: every `stripe_api_write` call fails with
+`Insufficient scope: required "mcp"`, and a `/mcp` reconnect did not change that (2026-11-25).
+Until a `stripe_api_write` succeeds, treat any live change (a coupon, a webhook endpoint's events, a
+refund) as a Dashboard step for the user: say so before starting, give the fields one by one, then
+read the object back to verify it. A test-mode checkout needs test keys and test-mode objects
+(prices, coupon, webhook endpoint) on a Vercel preview, also set up by the user, so offer the unpaid
+live check below first.
 
 `stripe_analytics` query runs and metric templates fail with "requires a Sigma subscription or
 trial". Claude in Chrome on `dashboard.stripe.com` returns "Permission denied for this action on
@@ -322,6 +327,31 @@ The fee Stripe took on a charge is on its balance transaction (`fee`, `net`). Re
 (2.9% + 30¢), which is what `netOfStripeFee` assumes; check there first if the Forecast's fee ever
 looks off.
 
+## Checking a sale checkout against live Stripe without paying
+
+To prove live Stripe accepts a sale checkout (price, coupon, no trial) before it ships, open one on
+the PR's preview and stop before paying. Prefer this to a test-mode practice purchase (owner,
+2026-11-25). Previews shared production's live Stripe keys as of 2026-11-25, so this is a real live
+session that expires unpaid; its expiry reaches production's webhook and can add one
+`<prefix>_checkout_expired` to the sale's funnel.
+
+1. With the Vercel MCP `create_project_env`, add two preview variables scoped to the PR branch
+   (`target: ["preview"]`, `gitBranch`): `STRIPE_COUPON_<ID>` set to the live coupon id, and
+   `PROMOTION_WINDOW_OVERRIDE` set to `<startISO>/<endISO>` a few hours around now, so it closes on
+   its own. A malformed override is ignored with only a log warning.
+2. Rebuild the preview with `create_deployment` (a GitHub `gitSource` with ref and sha), and wait
+   with `vercel inspect <deployment url> --wait`.
+3. Get a share link with `get_access_to_vercel_url`. Drive it with a Node Playwright script that
+   requires playwright from the main checkout's frontend node_modules and launches its own Chromium,
+   since another session may hold the Playwright MCP browser.
+4. Open `/upgrade` signed out, tap the sale card's button, wait for `checkout.stripe.com`, and read
+   the page text: the amount due today, the renewal line, the discount line, and the absence of a
+   code box. Enter nothing.
+5. The window from step 1 closes on its own. To close it sooner, edit `PROMOTION_WINDOW_OVERRIDE` to
+   a past window with `edit_project_env` and rebuild as in step 2, since Vercel applies an env edit
+   only to new deployments. The MCP has no tool for deleting an env var, so tell the user both
+   leftover branch variables are safe to delete.
+
 ## Exercising Stripe routes on a local production build
 
 No Stripe key exists locally, so set a placeholder `STRIPE_SECRET_KEY` (the client throws without
@@ -332,6 +362,13 @@ plain-HTTP fake hangs, and the wrapper must trust the fake's self-signed certifi
 `rejectUnauthorized: false` on the redirected request). Make that certificate with Python
 `cryptography`; Git Bash's `openssl req` fails for want of its config file. Chromium keeps `Secure` cookies on
 `http://localhost`, so cookie flags behave as in production.
+
+The local `.env.local` holds no Stripe price ids, so a checkout click stops in the browser with
+"Pricing is not configured" before any request. Set placeholder `NEXT_PUBLIC_STRIPE_PRICE_YEARLY`
+and `NEXT_PUBLIC_STRIPE_PRICE_MONTHLY` before `next build` or `next dev` starts, since Next inlines
+`NEXT_PUBLIC_` values into the bundle. The site's CSP (`connect-src 'self' https:`)
+blocks a plain-HTTP local Supabase proxy for browser-side calls, so only server-side reads pass
+through one.
 
 Any run that creates an account on live Supabase auth needs the owner's OK first and deletes the
 account in a `finally`.

@@ -3610,3 +3610,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `notifyAdmin` in `frontend/lib/notifications/admin.ts`; its longest caller, `alertUnlinkedPaidCheckout` in `frontend/app/api/stripe/webhook/route.ts`
 - **Why**: `notifyAdmin` posts the whole message to Telegram's `sendMessage` and, on a refusal, only logs it. Telegram caps message text at 4,096 characters (its Bot API docs, reported by review; not observed here), so an oversized alert never reaches the owner. The duplicate-purchase alert lists up to 100 subscriptions per live status (read in the code). Splitting long messages, or trimming with a "+N more" line, would keep every alert deliverable. Needs roughly 25+ live subscriptions on the customers involved today.
 - **Noted**: 2026-11-25
+
+### Make the upgrade page's "before the sale" tests depend on their clock
+
+- **ID**: IMP-416
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `answerPromotion` and the `renderDuring('upcoming', ...)` cases in `frontend/app/upgrade/page.test.tsx`
+- **Why**: These cases set a "before the sale" clock, but `answerPromotion` stubs `/api/promotion` to return the given state whatever the time (read in the test), so the clock never decides the outcome. A coverage review's mutation run moved all four clocks to mid-sale and the suite stayed green (reported by review). Have the stub answer from the real `getPromotionStatus(Date.now())` for these rows, or rename them "on an upcoming answer". Matters for the next sale, which reuses this page through a new promotion entry.
+- **Noted**: 2026-11-25
