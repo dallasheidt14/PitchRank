@@ -3517,3 +3517,27 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `match_or_create` in `scripts/extract_and_import_tgs_teams.py` (links through `TGSGameMatcher.link_candidate` and writes approved `fuzzy_auto` aliases)
 - **Why**: A 2026-11-23 scan found 1,123 team rows holding two squads' ids (same-day games at different events against different opponents), 135 of them a TGS id on another provider's row still misfiling games this season, most linked by name in the December 2025 TGS bulk import. The import still links by name with no tier check (ECNL vs ECNL RL vs Pre-ECNL) and no comparison of the candidate's schedule with the TGS id's games, so new fused rows can appear. Related: "Tighten the TGS club check where a name match reads the whole age group", "Stop fuzzy alias auto-links from fusing a second squad onto a team row".
 - **Noted**: 2026-11-24
+
+### Check row level security on the newsletter and server-only tables with the ordered replay
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `test_no_browser_role_can_read_newsletter_subscribers` in `tests/unit/test_browser_write_grants_migration.py` and `test_the_server_only_tables_are_closed_to_the_browser_roles` in `tests/unit/test_public_column_grants_migration.py`; the replay is `_replay` in the first file
+- **Why**: Both settle row level security by an ENABLE appearing anywhere and a DISABLE nowhere. So a rebuild of `newsletter_subscribers` that skips the ENABLE stays green, and there row level security is the only read guard; for `team_link_audit`, `team_merge_audit` and `scheduled_games` a rebuild that re-issues the REVOKE but not the ENABLE stays green too. `_replay` resets on a rebuild and already reads all four as on against the current tree (checked 2026-11-24). Move it, with `_table_statements` and `RLS_SWITCH`, beside `privilege_events` and `_live_policies` and point both tests at it.
+- **Noted**: 2026-11-24
+
+### Track a GRANT TO PUBLIC apart from the browser roles' own grants in the read replay
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `browser_readable_columns` in `tests/unit/test_public_column_grants_migration.py`
+- **Why**: It folds a `GRANT ... TO PUBLIC` into the `anon` and `authenticated` entries (through `_grantees`), so a later `REVOKE ... FROM anon, authenticated` reads as closing access Postgres still gives both roles through PUBLIC. `browser_writes` in `tests/unit/test_browser_write_grants_migration.py` already keeps PUBLIC in its own bucket and unions it at the end; mirror that. No migration grants a table or view to PUBLIC today (checked 2026-11-24), so nothing is mis-read yet.
+- **Noted**: 2026-11-24
+
+### Read a scrape_requests policy with no FOR clause as one that admits reads
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `test_no_live_policy_lets_a_browser_role_read` in `tests/unit/test_scrape_requests_rls_migration.py`
+- **Why**: It flags a browser read policy only when the body says `FOR ALL` or `FOR SELECT`, but a policy with no FOR clause applies to ALL. `CREATE POLICY ... ON scrape_requests USING (true) WITH CHECK (false)` therefore reopens reads with the whole suite green, because `_permits_write` reads it as closed (checked 2026-11-24); it also misses that DELETE uses USING alone, so that policy lets browser roles delete rows too. `_command` in `tests/unit/test_browser_write_grants_migration.py` reads no FOR as ALL: move it into `test_scrape_requests_rls_migration.py`, which both other files already import from (moving it into `test_public_column_grants_migration.py` would make the two modules import each other), and use it in both checks.
+- **Noted**: 2026-11-24
