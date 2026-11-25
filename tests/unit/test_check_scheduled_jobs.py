@@ -992,6 +992,26 @@ def test_a_frequent_series_flags_failure_but_not_cancelled():
     assert "ended failure" in line.text
 
 
+def test_a_quarter_hour_workflow_is_read_for_its_last_week_only(world):
+    """Fifteen days of a quarter-hour cron is 1,440 runs, past the ten pages the pager reads, so
+    a healthy job would read as unreadable; its last week, 672 at most, fits."""
+    write_workflow(world.root, "drain.yml", ["7,22,37,52 * * * *"], WORK_STEPS, name="Drain")
+    world.gh.routes[INVENTORY] = inventory(state_row("weekly.yml"), state_row("drain.yml"))
+    week = [
+        gh_run(300 + i, f"2026-11-{18 + i // 96:02d}T{i % 96 // 4:02d}:{7 + i % 4 * 15:02d}:00Z") for i in range(672)
+    ]
+    for page in range(1, 8):
+        world.gh.routes[runs_path("drain.yml", "schedule", "2026-11-18", page=page)] = runs_page(
+            *week[(page - 1) * 100 : page * 100], total=672
+        )
+
+    findings = job.collect(NOW)
+
+    assert runs_path("drain.yml", "schedule", "2026-11-18") in world.gh.calls
+    assert incomplete_lines(findings) == []
+    assert any(f.text.startswith("Drain: fired") for f in findings)
+
+
 @pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out"])
 def test_the_newest_failed_chain_link_is_flagged_until_a_later_link_does_its_work(conclusion):
     wf = synthetic(["30 6 * * 1"], name="Chain", chain=True)

@@ -984,7 +984,10 @@ def read_and_evaluate(
     """A filtered run list now and then comes back empty or stale, so a workflow with a problem
     is read again. A stale read can leave runs out but not invent them, so the two reads are
     merged and the workflow is judged on the merged lists."""
-    since = now - timedelta(days=RUN_HISTORY_DAYS)
+    # A frequent workflow's lines use only its last week, and fifteen days of a quarter-hour cron
+    # would pass the pager's limit.
+    frequent = all(series.frequent for series in wf.series)
+    since = now - (FREQUENT_WINDOW if frequent else timedelta(days=RUN_HISTORY_DAYS))
     runs: dict[int, dict] = {}
     links: dict[int, dict] = {}
     for _ in range(2):

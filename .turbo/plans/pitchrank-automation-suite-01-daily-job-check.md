@@ -99,6 +99,13 @@ Review round 3 changed these:
 - **The loader refuses an `on:` list or string that names `schedule` with no entries.** A non-UTF-8
   file gets its own reason.
 
+The PR review (2026-11-25) changed one more:
+
+- **A quarter-hour workflow is read for its last 7 days, not 15.** Its lines use only that week.
+  Fifteen days at one run every 15 minutes is 1,440 runs, past the pager's ten pages, so a job
+  running fully on schedule would read as unreadable every day. GitHub fires these two jobs far
+  less often today, so nothing hit it yet.
+
 ## Context
 
 Scheduled jobs on this repo fail quietly. GitHub skips and delays scheduled runs, an import can go
