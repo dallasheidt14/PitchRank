@@ -1,6 +1,6 @@
 # Staying top-of-mind with soccer parents — Google Ads plan
 
-Verified against the live account on 2026-09-01.
+Verified against the live account on 2026-09-01. Tag and account facts updated 2026-11-25.
 
 **The goal:** when a youth soccer parent wonders where their kid's team ranks, PitchRank
 is the name that comes to mind. Not "get a signup this week."
@@ -15,14 +15,22 @@ the second question.
 Account id and login live in the operator's password manager, deliberately not here — this
 repo is public and `.turbo/plans/` ships with it (CLAUDE.md § Improvement Backlog). Expert mode.
 
-- Remarketing tag `AW-584157926` live site-wide since ~2026-06-20
-  (`frontend/components/GoogleAds.tsx`, wired at `frontend/app/layout.tsx:152`).
-- Google Analytics is linked (Data manager → Connected products: "1 linked").
+- Remarketing tag `AW-18260860404` live site-wide since 2026-11-25
+  (`frontend/components/GoogleAds.tsx`, wired at `frontend/app/layout.tsx:156`). The ID
+  comes from Vercel's `NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID` (production). Next.js reads it
+  at build time, so changing it takes a redeploy.
+- **From ~2026-06-20 to 2026-11-25 the tag was `AW-584157926`, which belongs to a second,
+  older Google Ads account, not the one this plan describes.** Every audience list in that
+  account is Closed and holds no one, so nothing the tag sent there was usable. Ignore that
+  account; this one is where campaigns go.
+- Google Analytics is linked to this account (since 2026-07-13). Every audience list here
+  is a read-only import from GA4, filled by the Analytics tag rather than the Ads tag. That
+  is why the lists kept growing while the Ads tag reported to the other account.
 - Conversion tracking created 2026-09-01: `subscription_completed` (primary) and
   `checkout_initiated` (secondary), imported from GA4.
 - Zero campaigns, $0 ever spent.
 
-Audience sizes today — Google needs 100 for Display, 1,000 for YouTube:
+Audience sizes on 2026-09-01 — Google needs 100 for Display, 1,000 for YouTube:
 
 | Segment | YouTube | Display |
 |---|---|---|
@@ -31,6 +39,16 @@ Audience sizes today — Google needs 100 for Display, 1,000 for YouTube:
 | 14 Day Returning Users | 260 | 160 |
 | 7 Day Returning Users | 130 | too small |
 | Compare/Prediction, Watchlist Engaged, Purchasers | 0 | 0 |
+
+By 2026-11-25 the lists were considerably larger. Read current sizes in Google Ads under
+Tools → Shared library → Audience manager rather than here, since this repo is public. The
+reach arithmetic in the next section uses the 2026-09-01 sizes.
+
+A list holds far fewer people than GA4 reports as users. GA4 counts one parent on two
+devices twice, and Safari's cookie limit makes a returning visitor look new. Google Ads,
+meanwhile, can only add people it recognises. Turning on Google signals in GA4 (Admin →
+Data collection and modification → Data collection) lets Google match signed-in visitors
+across devices.
 
 ## The one strategic fact that shapes everything
 
@@ -157,6 +175,11 @@ metrics say.
   real events (`watchlist_added`, `compare_opened`, `subscription_completed`) and import.
   `Watchlist Engaged` is the loss that stings — someone who saved a team is the best
   retargeting audience on the site.
+  - **Update (2026-11-25)**: `Watchlist Engaged` and `Compare/Prediction Users` now hold
+    members and are read-only GA4 imports, so they have been rebuilt from GA4.
+    `Purchasers of Pitchrank` still holds no one. It counts GA4's `purchase` event, and
+    the site never sends one; subscriptions arrive as `subscription_completed`. Rebuilding
+    it from `subscription_completed` is what remains.
 
 ## The $500 that was passed on
 
