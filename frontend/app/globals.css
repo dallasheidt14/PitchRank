@@ -101,15 +101,18 @@
   /* Where the rankings search bar sticks: under Navigation's border and, on phones, under
      RankingsStickyFilters (h-9 + 1px border), which sits at --site-header-height. */
   --rankings-sticky-top: calc(var(--site-header-height) + 2.25rem + 1px);
+  /* PromotionBanner's top padding: the safe area, or 0.5rem to match the 0.5rem below its row. */
+  --promo-banner-pad-top: max(0.5rem, env(safe-area-inset-top, 0px));
 }
 
-/* PromotionBanner's h-10 row sits inside Navigation while it shows, and sets this class. */
+/* PromotionBanner sits inside Navigation while it shows, and sets this class: its h-10 row, with
+   0.5rem below it and --promo-banner-pad-top above. */
 html.promo-banner-visible {
-  --site-header-height: calc(4rem + 2.5rem + max(1rem, env(safe-area-inset-top, 0px)));
+  --site-header-height: calc(4rem + 3rem + var(--promo-banner-pad-top));
 }
 
-/* The banner takes over the header's safe-area padding, so its green reaches the top of the screen
-   and the header's total height stays the sum above. */
+/* The banner carries the safe-area inset instead (--promo-banner-pad-top), so its color reaches the top
+   of the screen and the header's total height stays the sum above. */
 html.promo-banner-visible header.safe-top {
   padding-top: 0;
 }

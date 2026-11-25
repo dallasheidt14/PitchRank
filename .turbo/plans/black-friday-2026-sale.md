@@ -34,7 +34,16 @@ Every step below shipped. These details differ from the text that follows:
   above Monthly and Yearly, which keep their two-column row; phones are as planned (sale first).
 - **Banner reaches the top edge (owner, 2026-11-24, after the screenshots).** The banner carries the
   header's safe-area padding while it shows (`html.promo-banner-visible header.safe-top` drops the
-  header's). The header's total height, and so `--site-header-height`, is unchanged from the plan.
+  header's). The header's total height, and so `--site-header-height`, matched the plan until the
+  yellow restyle below.
+- **Yellow banner (owner, 2026-11-25, after launch):** "make the banner centered? its all the way on
+  the bottom ... make it stand out a bit more". The bar is `bg-accent` with dark-green text;
+  `copy.bannerLabel` ("Black Friday") is in the display font and the rest in the body font (owner's
+  pick after "dont love the font"); the countdown is a pill shown from `lg` (it truncated at tablet
+  widths), and "Claim Offer →" is a button ("Claim →" on phones). The row is centered vertically:
+  `--promo-banner-pad-top` (the safe area, at least 0.5rem) above it and 0.5rem below, so
+  `--site-header-height` is `calc(4rem + 3rem + var(--promo-banner-pad-top))` while it shows. This
+  supersedes Decisions' h-10 header arithmetic, step 1's copy block and step 6's content and styling.
 - **The client hook is one module-level store** (`useSyncExternalStore`) shared by the banner and the
   upgrade page, not per-component state over a shared promise. It runs one refresh timer and one
   1-second ticker. It returns `state`, `promotion`, `preview`, `isLive` and `remainingMs`; nothing

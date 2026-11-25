@@ -28,6 +28,7 @@ const SPRING_SALE: Promotion = {
     amountCents: 5988,
   },
   copy: {
+    bannerLabel: 'Spring sale',
     bannerDesktop: 'Spring sale desktop',
     bannerMobile: 'Spring sale',
     cardLabel: 'Spring Exclusive',
