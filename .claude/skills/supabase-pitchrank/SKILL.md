@@ -1057,6 +1057,13 @@ against the hosted project:
    `pg_get_constraintdef` prints `IN (...)` as `= ANY (ARRAY[...])`.
 5. `pg_ctl -D <scratch>\data stop`, then delete the data directory.
 
+Before step 5, the same cluster can run the database tests in `tests/integration/` (those using
+the `postgres_database` fixture), which skip without it; step 1 alone is enough, as CI runs them on
+a bare `postgres:17`. Set `PROSPECTIVE_TEST_DATABASE_URL=postgresql://smoke@localhost:<port>/postgres`.
+The fixture in `tests/integration/conftest.py` refuses any host but localhost and gives each use its
+own randomly named database, dropped afterward, so two runs never share one. A mutation check of
+that SQL then needs no CI push.
+
 ### Constraints on a hand-applied table
 
 Relaxing a constraint the owner pasted by hand costs another hand-applied migration, so constrain

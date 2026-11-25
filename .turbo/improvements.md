@@ -3619,4 +3619,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: testing
 - **Where**: `answerPromotion` and the `renderDuring('upcoming', ...)` cases in `frontend/app/upgrade/page.test.tsx`
 - **Why**: These cases set a "before the sale" clock, but `answerPromotion` stubs `/api/promotion` to return the given state whatever the time (read in the test), so the clock never decides the outcome. A coverage review's mutation run moved all four clocks to mid-sale and the suite stayed green (reported by review). Have the stub answer from the real `getPromotionStatus(Date.now())` for these rows, or rename them "on an upcoming answer". Matters for the next sale, which reuses this page through a new promotion entry.
+
+### Pull the read-only query call, the `gh api` reader and the owner-email helpers into `src/utils`
+
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `read_only_query`, `github`, `plural` and `ARIZONA` in `scripts/check_scheduled_jobs.py`; `registered_inventory` in `src/predictions/archive_inputs.py`; the read-only call in `scripts/benchmark_compare_form.py`; `github` in `scripts/catch_up_compare_forecasts.py`; `plural`, `ARIZONA` and `render_html`'s email shell in `scripts/investigate_missing_game_requests.py`; `ARIZONA` in `scripts/team_cleanup/apply_stage.py`; `send_email` in `src/utils/resend_email.py`
+- **Why**: Each is now copied in two or three scripts, and the copies already differ (checked 2026-11-25). The read-only call raises `SourceUnreadable`, `RuntimeError` or `ValueError` with 60, 60 or 40 s timeouts. Only the scheduled-jobs `github` stops after one outage and catches `OSError`/`ValueError`. So a fix to the endpoint, the API version header or the retry reaches one copy. Importing an existing copy was impractical because of its heavy imports. Fold in hiding Resend's response body inside `send_email` on Actions, which today only the scheduled-jobs check does, with a log filter.
+- **Noted**: 2026-11-25
+
+### Make two lines of the scheduled-jobs email say what they mean
+
+- **Type**: direct
+- **Category**: readability
+- **Where**: `evaluate_workflow` (the `due is None` branch) and `subject` in `scripts/check_scheduled_jobs.py`
+- **Why**: A workflow reads "awaiting its first scheduled run" until its first due time plus grace has passed (`latest_due` returns None), even when that run already fired and did its work. And `subject` counts every `kind == "problem"` finding, which includes the "Check incomplete" lines (`incomplete_finding` keeps the default kind), so a day with one unreadable source reads "1 problem" while the log's count line says "problems 0, incomplete 1". Both checked in the code 2026-11-25.
 - **Noted**: 2026-11-25
