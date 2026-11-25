@@ -7,40 +7,27 @@ vi.mock('next/headers', () => ({
 }));
 
 // Mock the stripe module
-vi.mock('@/lib/stripe/server', async (importOriginal) => ({
-  isCancellationScheduled: (await importOriginal<typeof import('@/lib/stripe/server')>()).isCancellationScheduled,
-  stripe: {
-    webhooks: {
-      constructEvent: vi.fn(),
+vi.mock('@/lib/stripe/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/stripe/server')>();
+  return {
+    ...actual,
+    stripe: {
+      webhooks: {
+        constructEvent: vi.fn(),
+      },
+      subscriptions: {
+        retrieve: vi.fn(),
+        cancel: vi.fn().mockResolvedValue({ id: 'sub_123', status: 'canceled' }),
+      },
+      customers: {
+        retrieve: vi.fn().mockResolvedValue({ id: 'cus_123', email: 'test@example.com' }),
+        update: vi.fn().mockResolvedValue({ id: 'cus_123' }),
+      },
     },
-    subscriptions: {
-      retrieve: vi.fn(),
-      cancel: vi.fn().mockResolvedValue({ id: 'sub_123', status: 'canceled' }),
-    },
-    customers: {
-      retrieve: vi.fn().mockResolvedValue({ id: 'cus_123', email: 'test@example.com' }),
-      update: vi.fn().mockResolvedValue({ id: 'cus_123' }),
-    },
-  },
-  WEBHOOK_EVENTS: {
-    CHECKOUT_COMPLETED: 'checkout.session.completed',
-    CHECKOUT_ASYNC_PAYMENT_SUCCEEDED: 'checkout.session.async_payment_succeeded',
-    CHECKOUT_ASYNC_PAYMENT_FAILED: 'checkout.session.async_payment_failed',
-    SUBSCRIPTION_UPDATED: 'customer.subscription.updated',
-    SUBSCRIPTION_DELETED: 'customer.subscription.deleted',
-    INVOICE_PAID: 'invoice.paid',
-    INVOICE_PAYMENT_FAILED: 'invoice.payment_failed',
-    TRIAL_WILL_END: 'customer.subscription.trial_will_end',
-    CHARGE_REFUNDED: 'charge.refunded',
-  },
-  extractPeriodEnd: vi.fn(() => new Date().toISOString()),
-  mapStatusToPlan: vi.fn((status: string) =>
-    status === 'active' || status === 'trialing' || status === 'past_due' ? 'premium' : 'free'
-  ),
-  updateUserProfile: vi.fn().mockResolvedValue([{ id: '1' }]),
-  isSessionPaymentSettled: (s: { payment_status?: string }) =>
-    s.payment_status === 'paid' || s.payment_status === 'no_payment_required',
-}));
+    extractPeriodEnd: vi.fn(() => new Date().toISOString()),
+    updateUserProfile: vi.fn().mockResolvedValue([{ id: '1' }]),
+  };
+});
 
 // Mock the Beehiiv client — assert lifecycle routing without hitting the API
 vi.mock('@/lib/beehiiv', () => ({
@@ -114,11 +101,15 @@ vi.mock('@supabase/supabase-js', () => ({
         maybeSingle: vi.fn().mockImplementation(() => Promise.resolve({ data: nextMaybeSingle(), error: null })),
         then: undefined,
       };
-      // For .eq() chains that terminate in a second .select() (updateUserProfile pattern)
-      builder.eq = vi.fn().mockReturnValue({
+      // For .eq() chains that terminate in a second .select() (updateUserProfile pattern), including a
+      // signed-out link guarded by a further .eq()/.is() on the Stripe ids it read.
+      const filtered: Record<string, unknown> = {
         select: vi.fn().mockResolvedValue({ data: [{ id: '1' }], error: null }),
         maybeSingle: vi.fn().mockImplementation(() => Promise.resolve({ data: nextMaybeSingle(), error: null })),
-      });
+      };
+      filtered.eq = vi.fn().mockReturnValue(filtered);
+      filtered.is = vi.fn().mockReturnValue(filtered);
+      builder.eq = vi.fn().mockReturnValue(filtered);
       return builder;
     }),
     auth: {
@@ -377,60 +368,63 @@ describe('POST /api/stripe/webhook', () => {
     expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
   });
 
-  it('sends the set-password email, not re-subscribe, when the profile is still on a live subscription', async () => {
-    vi.mocked(headers).mockResolvedValue(
-      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
-    );
+  it.each([['trialing'], ['active']])(
+    'sends the set-password email, not re-subscribe, when the profile is still %s',
+    async (profileStatus) => {
+      vi.mocked(headers).mockResolvedValue(
+        new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
+      );
 
-    const fakeEvent = {
-      id: 'evt_duplicate_trial',
-      type: 'checkout.session.completed',
-      data: {
-        object: {
-          id: 'cs_duplicate',
-          customer: 'cus_second',
-          subscription: 'sub_second',
-          payment_status: 'no_payment_required',
-        } as unknown as Stripe.Checkout.Session,
-      },
-    } as Stripe.Event;
+      const fakeEvent = {
+        id: 'evt_duplicate_trial',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: 'cs_duplicate',
+            customer: 'cus_second',
+            subscription: 'sub_second',
+            payment_status: 'no_payment_required',
+          } as unknown as Stripe.Checkout.Session,
+        },
+      } as Stripe.Event;
 
-    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
-    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
-      id: 'sub_second',
-      status: 'trialing',
-      cancel_at: null,
-      cancel_at_period_end: false,
-      items: { data: [{ current_period_end: 1735689600 }] },
-    } as unknown as Stripe.Response<Stripe.Subscription>);
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
+      vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+        id: 'sub_second',
+        status: 'trialing',
+        cancel_at: null,
+        cancel_at_period_end: false,
+        items: { data: [{ current_period_end: 1735689600 }] },
+      } as unknown as Stripe.Response<Stripe.Subscription>);
 
-    // Lookup by the second stripe_customer_id → no profile (anonymous path).
-    // Lookup by email → the account created minutes ago, still trialing.
-    queueMaybeSingle([
-      null,
-      {
-        id: 'user-duplicate',
-        stripe_customer_id: 'cus_first',
-        stripe_subscription_id: 'sub_first',
-        subscription_status: 'trialing',
-      },
-    ]);
+      // Lookup by the second stripe_customer_id → no profile (anonymous path).
+      // Lookup by email → an account still on a live subscription.
+      queueMaybeSingle([
+        null,
+        {
+          id: 'user-duplicate',
+          stripe_customer_id: 'cus_first',
+          stripe_subscription_id: 'sub_first',
+          subscription_status: profileStatus,
+        },
+      ]);
 
-    const res = await POST(makeRequest('valid body'));
+      const res = await POST(makeRequest('valid body'));
 
-    expect(res.status).toBe(200);
-    expect(vi.mocked(stripe.subscriptions.cancel)).toHaveBeenCalledWith('sub_second');
-    // They already have a trial running — telling them to re-subscribe would
-    // dead-end at /upgrade, so they get the set-password link instead.
-    expect(vi.mocked(sendDuplicateSubscriptionEmail)).toHaveBeenCalledWith('test@example.com');
-    expect(vi.mocked(sendReturningSubscriberEmail)).not.toHaveBeenCalled();
-    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Duplicate checkout blocked'));
-    // The first subscription keeps the profile; the duplicate never touches it.
-    expect(vi.mocked(updateUserProfile)).not.toHaveBeenCalled();
-    expect(vi.mocked(sendSubscriptionCompleted)).not.toHaveBeenCalled();
-    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
-    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
-  });
+      expect(res.status).toBe(200);
+      expect(vi.mocked(stripe.subscriptions.cancel)).toHaveBeenCalledWith('sub_second');
+      // They already hold Premium — telling them to re-subscribe would
+      // dead-end at /upgrade, so they get the set-password link instead.
+      expect(vi.mocked(sendDuplicateSubscriptionEmail)).toHaveBeenCalledWith('test@example.com');
+      expect(vi.mocked(sendReturningSubscriberEmail)).not.toHaveBeenCalled();
+      expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Duplicate checkout blocked'));
+      // The first subscription keeps the profile; the duplicate never touches it.
+      expect(vi.mocked(updateUserProfile)).not.toHaveBeenCalled();
+      expect(vi.mocked(sendSubscriptionCompleted)).not.toHaveBeenCalled();
+      expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+      expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+    }
+  );
 
   it('keeps the re-subscribe email for a past_due profile, whose billing still needs fixing', async () => {
     vi.mocked(headers).mockResolvedValue(
@@ -561,6 +555,9 @@ describe('Beehiiv lifecycle routing', () => {
   });
 
   it('routes paid_canceled on charge.refunded', async () => {
+    // A profile holds the customer; a refund on a customer no profile holds is skipped.
+    setPriorState({ id: '1' });
+
     await fireEvent('charge.refunded', {
       id: 'ch_123',
       customer: 'cus_123',
@@ -577,6 +574,9 @@ describe('Beehiiv lifecycle routing', () => {
   });
 
   it('ignores partial refunds (charge.refunded false)', async () => {
+    // Linked, so only the partial-refund guard can keep the lifecycle unchanged.
+    setPriorState({ id: '1' });
+
     await fireEvent('charge.refunded', { id: 'ch_partial', customer: 'cus_123', refunded: false });
 
     expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();

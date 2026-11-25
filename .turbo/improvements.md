@@ -3526,3 +3526,63 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `main()` in `scripts/pr_wait.py` (the wait loop that breaks on `codex_settled`, and the `if pending:` "Still running" return)
 - **Why**: The loop stops as soon as the Codex window settles. With a required check still pending, the merge path prints "Still running: ... Re-run once they finish." and exits 1 without merging, so an owner's "merge it when it's green" needs a hand re-run (#1488, 2026-11-24: Python Tests (Linux) outlasted the window). The loop's comment says the wait would "strand a still-running gate here instead of handing it to --auto", but `gh pr merge --auto` is not used (module docstring, and the comment above the merge call), so the comment's reason does not apply. Wanted: keep polling until no required check is pending, within the existing `--timeout`, then merge or report.
 - **Noted**: 2026-11-24
+
+### Stop the webhook re-linking a profile to a later standard checkout on its old customer
+
+- **ID**: IMP-410
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `handleCheckoutCompleted` in `frontend/app/api/stripe/webhook/route.ts` (the email branch after the customer-id lookup misses)
+- **Why**: A signed-in standard checkout opened on a profile's old Stripe customer can complete after the profile was relinked to a new customer (for example by a guest purchase). The customer-id lookup then misses, the email branch runs, and the profile is re-pointed to the later full-price subscription at info level only. The earlier subscription is left unlinked and billing. A 2026-11-24 throwaway prototype (case W10) observed this. The Black Friday plan scopes duplicate detection to sale sessions and leaves this to its daily sweep. Extending detection to standard checkouts needs its own design: on paper it reddened about 15 existing webhook tests and changed the never-billed-link behaviour pinned at `route.test.ts` "still links an ended subscription to an account that has never been billed".
+- **Noted**: 2026-11-24
+
+### Keep UTM parameters when middleware redirects a premium page to /upgrade
+
+- **ID**: IMP-411
+- **Status**: open
+- **Type**: direct
+- **Category**: feature
+- **Where**: the `isPremiumRoute` arm of the `isProtectedRoute && !user` branch in `frontend/middleware.ts` (builds `upgradeUrl` with only `next`)
+- **Why**: Signed-out visitors on `/teams`, `/compare` and `/watchlist` are redirected to `/upgrade?next=<path>` with every other query parameter dropped. So a UTM-tagged link to a premium page loses its attribution before the client can capture it. Saved GEO responses show AI answers citing `/watchlist?utm_source=openai`. Carrying the allowed attribution keys (`campaign` and `utm_*`) through the redirect would keep them. Campaign links that target `/upgrade` directly, as the Black Friday sale's do, are unaffected.
+- **Noted**: 2026-11-24
+
+### Route the inline premium and admin plan checks through hasPremiumPlan and hasAdminPlan
+
+- **ID**: IMP-412
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: the premium-route branch in `frontend/middleware.ts` and `requirePremium` in `frontend/lib/api/requirePremium.ts` (both `profile.plan !== 'premium' && profile.plan !== 'admin'`); `hasPremiumPlan` in `frontend/lib/plan.ts`. The admin check repeats the same way, inline in `middleware.ts`, `lib/supabase/admin.ts` and `app/(internal)/analytics/layout.tsx`, beside `hasAdminPlan` in the same file
+- **Why**: Both write the "does this plan carry premium?" rule inline. `lib/plan.ts`'s directive-free `hasPremiumPlan` is shared by the sale checkout, the webhook and `hasPremiumAccess`. The sale audience is decided by that helper, and it relies on middleware sending every non-premium visitor to `/upgrade`. A plan value added in one place but not the other would split the paywall from the sale. Owner chose to note it for later (2026-11-25).
+- **Noted**: 2026-11-25
+
+### Redo a signed-out link's follow-up steps when the first delivery fails after the profile write
+
+- **ID**: IMP-413
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `handleCheckoutCompleted` in `frontend/app/api/stripe/webhook/route.ts`: the email-link branch and the new-account branch (each `writeProfileById`, then `stripe.customers.update` metadata; the new-account branch then the set-password email and the `checkout_session_id` sign-in marker, including its re-read after a twin delivery linked the row), and the existing-profile branch their retry takes (`updateUserProfile`, `priorStatus`)
+- **Why**: The signed-out path writes the profile link first and does the rest afterwards. If a later step fails (the Stripe metadata call, or the new-account branch's re-read after a twin delivery linked the row), Stripe retries, but the retry finds the profile by customer and takes the existing-profile branch, which redoes none of it. It also reads the just-stored status as `priorStatus`, so the Beehiiv lifecycle enrollment is skipped as a re-delivery. On the new-account branch the lost steps include the set-password email and the sign-in marker, so the buyer cannot sign in until `scripts/check_stuck_signups.py` sends a link at 24 hours. Predates the Black Friday change. A fix needs a record of which follow-up steps finished. Related: IMP-246. Owner chose to log it for later (2026-11-25).
+- **Noted**: 2026-11-25
+
+### Decide a signed-out buyer's billing history from Stripe, not from a stored customer id
+
+- **ID**: IMP-414
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `hasBillingHistory` in `handleCheckoutCompleted`, `frontend/app/api/stripe/webhook/route.ts`; the signed-in customer write in `POST`, `frontend/app/api/stripe/checkout/route.ts`
+- **Why**: The webhook counts any stored `stripe_customer_id` as billing history, but the checkout route stores one as soon as a signed-in user opens checkout, before any payment. So someone who opens a signed-in checkout, abandons it, then takes a signed-out trial under the same email has that trial cancelled as a second trial and is sent the "log in and re-subscribe" email. The checkout route itself would have offered the trial, since it decides from Stripe's subscription history. They recover by logging in. Predates the Black Friday change. Owner chose to log it for later (2026-11-25).
+- **Noted**: 2026-11-25
+
+### Split or trim admin alerts that would pass Telegram's message length limit
+
+- **ID**: IMP-415
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `notifyAdmin` in `frontend/lib/notifications/admin.ts`; its longest caller, `alertUnlinkedPaidCheckout` in `frontend/app/api/stripe/webhook/route.ts`
+- **Why**: `notifyAdmin` posts the whole message to Telegram's `sendMessage` and, on a refusal, only logs it. Telegram caps message text at 4,096 characters (its Bot API docs, reported by review; not observed here), so an oversized alert never reaches the owner. The duplicate-purchase alert lists up to 100 subscriptions per live status (read in the code). Splitting long messages, or trimming with a "+N more" line, would keep every alert deliverable. Needs roughly 25+ live subscriptions on the customers involved today.
+- **Noted**: 2026-11-25

@@ -155,6 +155,7 @@ frontend/
 ### Public
 
 - `GET /api/announcements` (intentionally public, limit clamped to 50)
+- `GET /api/promotion` (intentionally public: the current sale from `lib/promotions.server.ts` plus the server's clock; never the coupon id; cached `s-maxage=30`)
 - `POST /api/newsletter` (rate limited: 5 req/min per IP)
 - `POST /api/matchbalance-inquiry` (requires `Content-Type: application/json`; honeypot + 2s dwell floor answer a silent 201; rate limited 5 req/hour per IP after validation)
 
@@ -516,3 +517,19 @@ RESEND_API_KEY
 22. **`useUser` is not a shared context** — every component that calls it runs its own `getSession`,
     profile fetch and auth listener. The header mounts `GlobalSearch` twice (phone and desktop), so a
     component that calls `useUser` inside it, such as a modal, should mount only while it is in use.
+23. **Server code never imports from a `'use client'` module** — route handlers compile in Next's RSC
+    layer, where every export of a client module becomes a stub that throws when called ("Attempted
+    to call X() from the server but X is on the client"; reproduced on next@16.2.6). A pure helper
+    such as `hasPremiumAccess` in `hooks/useUser.ts` is therefore unusable in an API route. Vitest
+    does not apply that transform, so a route's own tests stay green; `test/server-imports.test.ts`
+    follows every route handler's imports and fails on any `'use client'` module it reaches. Put
+    shared pure logic in a module with no directive (as `lib/plan.ts` is) and import that from both
+    sides.
+24. **Client code runs on every browser `browserslist` in `package.json` names** — down to Safari and
+    iOS 15.4 and Chrome, Edge and Firefox 93. Check a newer web API against MDN's compatibility data
+    before using it in the browser; Next does not polyfill it. `AbortSignal.timeout`, which needs
+    Safari 16 or Chrome 103, threw before `fetch` ran, so the sale banner silently never appeared on
+    older devices; a hand-set `AbortController` timer works everywhere. Server-only code runs on Node
+    and is exempt.
+25. **The `react-hooks/purity` lint rule refuses `Date.now()` during render** — read the clock in a
+    `useSyncExternalStore` snapshot (as `useInCampaignPeriod` does) or in an effect.

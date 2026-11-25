@@ -103,6 +103,17 @@
   --rankings-sticky-top: calc(var(--site-header-height) + 2.25rem + 1px);
 }
 
+/* PromotionBanner's h-10 row sits inside Navigation while it shows, and sets this class. */
+html.promo-banner-visible {
+  --site-header-height: calc(4rem + 2.5rem + max(1rem, env(safe-area-inset-top, 0px)));
+}
+
+/* The banner takes over the header's safe-area padding, so its green reaches the top of the screen
+   and the header's total height stays the sum above. */
+html.promo-banner-visible header.safe-top {
+  padding-top: 0;
+}
+
 @media (min-width: 640px) {
   :root {
     --rankings-sticky-top: calc(var(--site-header-height) + 1px);

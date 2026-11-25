@@ -18,17 +18,21 @@ function throwawayClientId(): string {
 }
 
 /**
- * Sent from the server because the tag never loads on the page a buyer returns to (SECRET_QUERY_PATHS).
- * Never throws, so analytics cannot fail a Stripe webhook.
+ * A GA4 event sent through the Measurement Protocol, for what only the server sees: Stripe events, and
+ * pages the tag never loads on (SECRET_QUERY_PATHS). Never throws, so analytics cannot fail a webhook.
  */
-export async function sendSubscriptionCompleted(clientId: string | undefined): Promise<void> {
+export async function sendServerEvent(
+  clientId: string | undefined,
+  name: string,
+  params?: Record<string, string | number | undefined>
+): Promise<void> {
   if (process.env.NODE_ENV === 'development') return;
 
   const measurementId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID?.trim();
   const apiSecret = process.env.GA_API_SECRET?.trim();
 
   if (!measurementId || !apiSecret) {
-    console.warn('subscription_completed not sent: NEXT_PUBLIC_GA_MEASUREMENT_ID or GA_API_SECRET not set');
+    console.warn(`${name} not sent: NEXT_PUBLIC_GA_MEASUREMENT_ID or GA_API_SECRET not set`);
     return;
   }
 
@@ -40,13 +44,17 @@ export async function sendSubscriptionCompleted(clientId: string | undefined): P
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         client_id: clientId || throwawayClientId(),
-        events: [{ name: 'subscription_completed' }],
+        events: [{ name, ...(params ? { params } : {}) }],
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!res.ok) console.warn('subscription_completed not sent: status', res.status);
+    if (!res.ok) console.warn(`${name} not sent: status`, res.status);
   } catch (error) {
     // Only the error's name: its message can carry the request URL, which holds the secret.
-    console.warn('subscription_completed not sent:', error instanceof Error ? error.name : 'unknown error');
+    console.warn(`${name} not sent:`, error instanceof Error ? error.name : 'unknown error');
   }
+}
+
+export function sendSubscriptionCompleted(clientId: string | undefined): Promise<void> {
+  return sendServerEvent(clientId, 'subscription_completed');
 }

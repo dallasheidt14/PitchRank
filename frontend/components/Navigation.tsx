@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Menu, X, Star, User, LogOut, LogIn } from 'lucide-react';
 import { GlobalSearch, GLOBAL_SEARCH_INPUT_IDS } from './GlobalSearch';
 import { FeedbackTrigger } from './FeedbackTrigger';
+import { PromotionBanner } from './PromotionBanner';
 import { Button } from './ui/button';
 import { useUser } from '@/hooks/useUser';
 
@@ -14,7 +15,7 @@ export function Navigation() {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const { user, isLoading, signOut } = useUser();
+  const { user, profile, isLoading, error, signOut } = useUser();
 
   const handleSignOut = async () => {
     try {
@@ -41,6 +42,7 @@ export function Navigation() {
       data-testid="main-navigation"
       className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 safe-top"
     >
+      <PromotionBanner user={user} profile={profile} isLoading={isLoading} error={error} />
       <div className="container mx-auto flex h-16 items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4">
         <Link
           href="/"

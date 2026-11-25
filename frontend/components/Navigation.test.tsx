@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
@@ -22,7 +22,15 @@ import { Navigation } from './Navigation';
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
+// Outside any sale, so the header's sale banner mounts nothing and asks for no promotion; on the
+// real clock this suite would change during one.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-01T12:00:00Z'));
+});
+
 afterEach(async () => {
+  vi.useRealTimers();
   await act(async () => root?.unmount());
   container?.remove();
   root = null;

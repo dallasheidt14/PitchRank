@@ -4,6 +4,8 @@
  * Note: These types use `| null` to match database types (TeamWithRanking, etc.)
  */
 
+import type { PromotionEventStep } from '@/lib/promotions';
+
 /**
  * Payload for team-related events
  */
@@ -94,6 +96,19 @@ export interface MissingGameEventPayload {
 export interface UpgradeEventPayload {
   source?: string;
   plan?: 'monthly' | 'yearly';
+  price?: number;
+}
+
+/**
+ * A step in a sale's funnel that the browser sends; the webhook sends the rest
+ */
+export type PromotionStep = Exclude<PromotionEventStep, 'purchase_completed' | 'checkout_expired'>;
+
+/**
+ * Payload for sale funnel events
+ */
+export interface PromotionEventPayload {
+  source?: string;
   price?: number;
 }
 

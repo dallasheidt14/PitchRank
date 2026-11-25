@@ -1,6 +1,8 @@
 # Black Friday 2026 sale — design
 
-Status: draft for owner approval, 2026-11-24.
+Status: approved 2026-11-24, then revised by the owner's rulings during planning.
+
+Where this design and `.turbo/plans/black-friday-2026-sale.md` differ, the plan wins.
 
 ## Intent
 
@@ -19,11 +21,11 @@ build must be reusable: the next sale should be a new settings entry, not a new 
 - **Who can buy:** anyone not currently paying PitchRank monthly or annually. "I don't care who they
   are" — there are no history checks: past trials, people whose cancelled plan has run out, and
   brand-new visitors are all eligible.
-- **Still counted as current subscribers (owner, 2026-11-24):** accounts whose card is failing
-  (`past_due`, Stripe still retrying) and accounts that cancelled but still have paid time left. No
-  sale for them, and nothing about their subscription changes. The checkout refuses them, the banner
-  and prompts are hidden from them, and a signed-out purchase by one is refunded under webhook rule
-  (c).
+- **Still counted as current subscribers (owner, 2026-11-24):** accounts in a free trial, accounts
+  whose card is failing (`past_due`, Stripe still retrying) and accounts that cancelled but still have
+  paid time left. No sale for them, and nothing about their subscription changes. The checkout
+  refuses them, the banner is hidden from them, and a signed-out purchase by one reaches the owner
+  as a duplicate to refund by hand (webhook, below).
 - **Existing paying subscribers:** out of scope. They see no sale messaging, and nothing about their
   subscription changes.
 - **Customers type no coupon code.** The discount is applied by the server.
@@ -36,17 +38,14 @@ build must be reusable: the next sale should be a new settings entry, not a new 
 
 ## Calls made in the conversation (stated to the owner, not objected to)
 
-1. **People in a free trial right now are eligible** (they aren't paying yet). Buying the sale ends
-   their trial and starts the paid year, so they end up with one subscription, never two. If the sale
-   checkout fails or is abandoned, the trial is untouched. They also *see* the sale: banner and
-   prompt visibility goes by subscription status (hidden only for people on a paid plan), not by
-   `plan`. Every existing check counts a trialing account as premium, so a plan-based check would
-   hide the offer from exactly these people. The trial is ended even when it sits under a different
-   Stripe customer with the same email, which is what a signed-out purchase produces. Otherwise it
-   would convert on day 7 and double-bill.
-2. **A currently paying subscriber who buys while signed out** (so we only learn who they are inside
-   Stripe's checkout page) has the new purchase cancelled and refunded automatically, and gets an
-   email saying so. This mirrors how the webhook already handles duplicate anonymous trials today.
+1. **Superseded (owner, 2026-11-24): people in a free trial count as current subscribers.** They see
+   no sale and checkout refuses them, exactly like payers. Visibility goes by `plan`, so no sale code
+   path ever ends a trial or cancels a subscription, and no account holds two live subscriptions on
+   purpose.
+2. **Superseded (owner, 2026-11-24): a duplicate purchase is alerted and refunded by hand.** When
+   someone who already holds Premium buys while signed out, the webhook leaves their account alone,
+   alerts the owner on Telegram with every live subscription involved, and emails the buyer that a
+   refund is coming. The owner refunds and cancels it in Stripe. Nothing is refunded automatically.
 3. **The copy changes from one day to four.** "ONE DAY / 24 HOURS ONLY" becomes Black Friday through
    Cyber Monday wording. The countdown runs to Monday midnight Arizona time.
 4. **Customer-facing pieces ship first,** because they must be live by Thursday night. The admin
@@ -59,21 +58,22 @@ build must be reusable: the next sale should be a new settings entry, not a new 
    page and in Stripe. The Black Friday annual card is added beside them and is the visually dominant
    one.
 6. **Checkout pages near midnight.** A Stripe checkout page must stay open at least 30 minutes, so
-   sale checkouts are set to close at the end of the sale, or 30 minutes after they open, whichever is
-   later. Anyone who opens checkout before 11:30 PM Monday has it close exactly at midnight. Someone
-   who clicks in the last 30 minutes gets up to 30 minutes to finish. They clicked in time, so we
+   sale checkouts close at the end of the sale or 31 minutes after they open, whichever is later, and
+   never more than 23 hours out (Stripe allows 30 minutes to 24 hours on its own clock; the extra
+   minute and hour are margin). Anyone who opens checkout before 11:29 PM Monday has it close exactly
+   at midnight; someone who clicks later gets 31 minutes to finish. They clicked in time, so we
    honour them. This needs no midnight job; the repo has no Vercel cron, and the GitHub scheduler has
-   skipped runs before. The close time is also capped at Stripe's 24-hour maximum. The coupon's
-   `redeem_by` is set to **30 minutes after the sale end**. Stripe's docs don't say whether it is
+   skipped runs before. The coupon's
+   `redeem_by` is set to **60 minutes after the sale end**. Stripe's docs don't say whether it is
    re-checked when payment happens, and it can't be changed once the coupon exists, so the late
    clickers must not depend on that. The server clock refuses new sale checkouts at exactly midnight.
    The coupon is the backstop beyond that.
 7. **Campaign links before and after the sale.** Before Friday, `/upgrade?campaign=black-friday-2026`
    shows the normal upgrade page (no teaser). After Monday it shows a short "The Black Friday sale has
    ended" note above the normal page.
-8. **Admin preview** is a query flag honoured only for admin accounts. It shows the banner, the sale
-   card and the paywall copy before Friday. It cannot buy: the checkout route decides by the server's
-   clock alone and ignores the flag.
+8. **Admin preview** is a query flag (`?promo_preview=1`) honoured only for admin accounts. It shows
+   the banner and the sale card before Friday. It cannot buy: the checkout route decides by the
+   server's clock alone and ignores the flag.
 
 ## Testing (owner, 2026-11-24: "Test buy on a preview copy")
 
@@ -94,14 +94,13 @@ build must be reusable: the next sale should be a new settings entry, not a new 
   the owner's OK for that one account.
 - **Cases to run:**
   - a signed-out new buyer, in full
-  - if time allows, a signed-in trial user switching, to prove they keep Premium after the trial is
-    ended
+  - a second signed-out sale purchase with the same email, which must reach the owner as a duplicate
 
 ## Approaches considered
 
 1. **Settings in code + Stripe coupon expiry (chosen).** One settings module holds each sale: id,
    start, end, coupon id, display prices, copy. The server checks the clock. The coupon's own
-   `redeem_by` (end + 30 minutes) stops it being applied after that, even if our code slips.
+   `redeem_by` (end + 60 minutes) stops it being applied after that, even if our code slips.
    Emergency off: one environment setting, live after a redeploy (a few minutes). Deleting the coupon
    in Stripe stops *new* sale checkouts instantly. Fastest to build. A future sale is a new entry.
 2. **Settings in a database table.** Dates are editable and the sale can be killed instantly with no
@@ -110,7 +109,7 @@ build must be reusable: the next sale should be a new settings entry, not a new 
 3. **A separate discounted Stripe price.** Rejected: it would renew at the discounted amount unless
    carefully scheduled, which the brief explicitly forbids.
 
-## How it works today (what the change touches)
+## How it worked before the sale (what the change touches)
 
 - **Checkout:** `frontend/app/api/stripe/checkout/route.ts`. It validates the price id against the
   monthly and yearly env prices and sets `allow_promotion_codes: true` on every session. Signed-in
@@ -121,14 +120,10 @@ build must be reusable: the next sale should be a new settings entry, not a new 
   Supabase account by email. If that email already had a subscription and the new one is *trialing*,
   it cancels the new one and emails the buyer. **A paid (non-trialing) anonymous checkout from
   someone already paying is not caught; it links the new subscription and double-bills.** That gap is
-  why call 2 needs building.
-- **Hazard for call 1:** `handleSubscriptionDeleted` sets the profile to `plan: 'free'` by
-  **customer id**, whichever subscription was deleted, then routes Beehiiv into the trial-cancel
-  automation. Cancelling the old trial after the paid sale subscription starts would therefore
-  downgrade the new buyer and send them a "your trial was cancelled" email. The deletion handler must
-  act only when the deleted subscription is the one stored on the profile (or when the customer has no
-  other live subscription). Check `scripts/reconcile_stripe_subscriptions.py` (runs every 6 hours) and
-  `/api/stripe/sync` the same way, for how they pick a subscription when a customer briefly has two.
+  why the duplicate alert (webhook rule (a)) needs building.
+- **Hazard:** `handleSubscriptionDeleted` sets the profile to `plan: 'free'` by **customer id**,
+  whichever subscription was deleted. No sale path deletes a subscription, but the owner cancelling a
+  same-customer duplicate by hand triggers it, which is why that alert carries the clean-up steps.
 - **Paywalls:** `middleware.ts` sends every non-premium visitor to `/upgrade` (with `next=`) for
   `/teams`, `/compare` and `/watchlist`. So non-paying visitors never see those pages, and **the
   upgrade page is the main paywall**. Its existing "You were looking at <team>" header and
@@ -160,14 +155,14 @@ A kill-switch env var forces "no sale live".
 **Stripe (owner approves before any live write).** One coupon:
 - `amount_off: 2211` USD, `duration: 'once'` (first invoice only)
 - `applies_to` the Premium product
-- `redeem_by` = the sale end + 30 minutes (call 6)
+- `redeem_by` = the sale end + 60 minutes (call 6)
 - name "Black Friday 2026"
 
 Create the same coupon in test mode for the preview. No changes to existing products, prices,
 subscriptions or customers.
 
 **Checkout route.** The sale card sends the yearly price plus the sale id. The standard cards send no
-sale id and keep today's behaviour, trial included, even during the sale. When the sale id is sent
+sale id and keep their 7-day trial, even during the sale. When the sale id is sent
 and that sale is live by the server clock:
 - create the session with `discounts: [{ coupon }]` in place of `allow_promotion_codes`. Stripe
   allows one or the other, which also blocks stacking.
@@ -176,24 +171,30 @@ and that sale is live by the server clock:
 - metadata `promotion: black-friday-2026` on the session and the subscription, plus campaign and UTM
   values next to the existing `ga_client_id`
 
-Signed-in buyers holding a **trialing** subscription are allowed through (call 1). Active payers are
-still refused. A sale id sent outside the window, or with the kill switch on, is refused with an
-"offer has ended" message; the route behaves exactly as today for everything else. The client never
-sends the coupon.
+Signed-in buyers on a premium plan are refused, trials included, as are customers holding any
+`active`, `trialing` or `past_due` subscription. A sale id sent outside the window, or with the kill
+switch on, is refused with an "offer has ended" message. Standard checkouts keep their trial rules;
+how their refusals and open-session expiry work is in the plan's As built. The client never sends the
+coupon.
 
 **Webhook.**
-- (a) Sale checkout completed for a customer who also has a trialing subscription: cancel the old
-  trial after the new subscription is stored.
-- (b) Guard `handleSubscriptionDeleted` (and any Beehiiv routing) so deleting a non-current
-  subscription changes nothing.
-- (c) Anonymous sale checkout whose email belongs to someone already paying: refund the sale invoice,
-  cancel the new subscription, email the buyer, and notify the owner. The existing Telegram notice
-  pattern is next to the duplicate-trial code.
-- (d) Fire the purchase analytics event once per subscription, keyed on Stripe's event or
-  subscription id so retries don't double-count.
+- (a) A paid sale checkout from someone who already holds Premium (a live subscription on the same
+  customer, a premium or admin profile with that email, or that profile's other customer holding a
+  live subscription) writes nothing to the profile. It alerts the owner on Telegram, listing every
+  live subscription involved, and emails the buyer that the purchase will be refunded. The owner
+  refunds by hand. Every other sale exit that cannot link (no email on the customer, a login that
+  already holds the email) alerts too, so no paid sale ends silently.
+- (b) The signed-out path lowercases the Stripe email before matching a profile or creating a login,
+  throws on a failed profile lookup, and verifies its profile writes, so Stripe retries instead of
+  leaving a paid buyer unlinked.
+- (c) A refund on a customer no profile holds (the owner refunding a duplicate) leaves the newsletter
+  lifecycle alone.
+- (d) The purchase analytics event goes out last, after every write, with no dedupe gate; each
+  carries `transaction_id` (the subscription id) so counts can be made distinct.
 
 **Banner.**
-- A client component above `Navigation`, shown only while a sale is live.
+- A client component pinned with the menu: one line, the first row inside `Navigation`'s sticky
+  header, shown only while a sale is live.
 - Hidden for premium and admin accounts. Admins see it in preview.
 - Decided from the shipped sale settings and a server "now" (a tiny cached endpoint or the response
   `Date` header), so a wrong browser clock can't show it outside the window. Checkout still decides
@@ -218,9 +219,9 @@ sends the coupon.
 - `?campaign=` handling per call 7.
 - Feature copy uses the page's existing `FEATURES` descriptions. Nothing new is claimed.
 
-**Paywall prompts.** `ClutchFactorCard`, `TeamInsightsCard` and the watchlist link swap their
-upgrade line for "Unlock this and a full year of Premium for $3.99/mo — Black Friday only" while the
-sale is live. Links keep their `source` and team parameters.
+**Paywall prompts: no change.** `ClutchFactorCard`, `TeamInsightsCard` and the watchlist block sit on
+routes middleware gates by plan, so the sale audience is sent to `/upgrade` before they render. The
+paywall copy lives on `/upgrade`: its tapped-team header line and the sale card.
 
 **Analytics events** (GA4, names as the brief gives them):
 - browser: `black_friday_banner_view`, `black_friday_banner_click`, `black_friday_offer_view`,
@@ -228,13 +229,14 @@ sale is live. Links keep their `source` and team parameters.
 - server, from verified Stripe events: `black_friday_purchase_completed` and
   `black_friday_checkout_expired`
 
-Event names derive from the sale id, so the next sale gets its own names with no code change.
-Properties: source and page, campaign and UTM, segment (new / trial switch), price, transaction id,
-revenue. `black_friday_monthly_upgrade` is dropped, because monthly subscribers are out of scope.
+Event names derive from the sale's settings, so the next sale gets its own names with no code change.
+Properties: source and page, campaign and UTM, segment (`new` / `returning` / `signed_out`), price,
+transaction id, revenue. There is no dedupe gate; `transaction_id` is on every purchase event.
+`black_friday_monthly_upgrade` is dropped, because monthly subscribers are out of scope.
 
 **Admin summary (after launch).** A Black Friday tile or section showing:
 - checkout starts and completed purchases from Stripe (sale metadata)
-- new paid subscribers and trial switches
+- new paid subscribers, by segment
 - gross revenue and revenue by channel (UTM)
 - banner views and clicks from GA4
 

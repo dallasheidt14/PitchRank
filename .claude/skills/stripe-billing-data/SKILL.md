@@ -1,6 +1,6 @@
 ---
 name: stripe-billing-data
-description: Reading Stripe subscription and invoice data correctly in PitchRank - where fields actually live in the pinned API version, and the measurement traps that silently produce wrong conversion, churn and MRR numbers. Use for any work touching Stripe here - the admin subscriptions dashboard, checkout, webhook, portal, sync, or reconcile_stripe_subscriptions.py. Also use when asked why a conversion, churn, MRR or subscriber figure looks wrong, or about past-due and failed payments, coupons, or trials.
+description: Reading Stripe subscription and invoice data correctly in PitchRank - where fields actually live in the pinned API version, and the measurement traps that silently produce wrong conversion, churn and MRR numbers. Use for any work touching Stripe here - the admin subscriptions dashboard, checkout, webhook, portal, sync, or reconcile_stripe_subscriptions.py. Also use when asked why a conversion, churn, MRR or subscriber figure looks wrong, or about past-due and failed payments, coupons, discounted or sale checkouts, promotion codes, expiring open checkout sessions, or trials.
 ---
 
 # Stripe Billing Data in PitchRank
@@ -55,8 +55,8 @@ tolerable only while every invoice reaching this code is a subscription invoice;
 non-subscription source is ever added. The cash arm must still accept `subscription_create` — that
 is the activation invoice for a returning customer who gets no trial.
 
-`allow_promotion_codes: true` is set on every checkout session, so this path goes live the moment
-anyone creates a coupon, with no deploy.
+`allow_promotion_codes: true` is set on every checkout session that sets no `discounts`, so this
+path goes live the moment anyone creates a coupon, with no deploy.
 
 **`amount_remaining`, not `amount_due`**, is what is still owed. `amount_due` is fixed at
 finalization and does not move when a partial payment lands.
@@ -203,6 +203,14 @@ short window.
 Counts from 2026-08-19, when the tag came off this page, until the webhook began sending the event
 undercount heavily: read that span with Stripe.
 
+A sale checkout also sends `<prefix>_purchase_completed`, named by `promotionEventName`
+(`frontend/lib/promotions.ts`) from the sale's own prefix. It goes out for sale sessions only, as the
+webhook's last action after every write. It has no dedupe gate either, but every event carries
+`transaction_id` (the subscription id), so a count can be made distinct. `<prefix>_checkout_expired`
+arrives only if `checkout.session.expired` is on the Stripe webhook endpoint's event list. It counts
+sale checkouts that closed unpaid, whether at their own close time or expired by the checkout route
+around a sale; an expired standard checkout sends nothing.
+
 ## MRR
 
 Stripe's Billing MRR is the monthly-normalized value of `active` and `past_due` subscriptions,
@@ -237,6 +245,37 @@ That route rests on two Supabase behaviours:
 - **Admin `updateUserById` merges `app_metadata` keys** rather than replacing the object (verified
   on the same run), and only admin calls can write `app_metadata` at all.
 
+## Discounted checkouts and sale sessions
+
+`.turbo/plans/black-friday-2026-sale.md` has the sale's design; these are the Stripe behaviours it
+rests on.
+
+- **One discount per session, and no promotion codes beside it.**
+  - `discounts` takes at most one coupon or promotion code.
+  - `baseSessionParams` (`frontend/app/api/stripe/checkout/route.ts`) sets `discounts` or
+    `allow_promotion_codes`, never both: Stripe refuses the pair. The typings don't say so, so a test
+    double must refuse it too.
+- **`expires_at` is 30 minutes to 24 hours after creation, on Stripe's clock.** Clamp with a margin
+  on both ends (for example `now + 31 min` to `now + 23 h`), never exactly 24 hours.
+- **A coupon's `redeem_by` cannot be changed after the coupon exists.**
+  - Set it with any grace period already included.
+  - Deleting a coupon stops new applications and leaves applied discounts in place.
+  - `duration: 'once'` discounts the first invoice only.
+- **Expiring a customer's open sessions:**
+  - `checkout.sessions.list` defaults to 10 per page (`limit` up to 100).
+  - Collect every id with a `starting_after` loop until `has_more` is false, then expire each.
+    Expiring during the walk changes the filtered set under the cursor. A stateful test double
+    skipped rows that way; real Stripe's behaviour here is unverified, so collect first regardless.
+  - Always pass `customer`. The parameter is optional, and omitting it lists other buyers'
+    sessions.
+  - `checkout.sessions.expire` works only on an `open` session. On an expire error, retrieve the
+    session: if its status is no longer `open`, carry on and re-check the buyer's subscriptions
+    before creating a new session (every live status for a sale, `active` and `trialing` for a
+    standard checkout); otherwise rethrow.
+- **Settlement:** before assuming every Checkout payment settles at once, read the account's payment
+  method configuration with `stripe_api_read` `GetPaymentMethodConfigurations`. The default
+  configuration had no delayed-settlement method enabled when read on 2026-11-24.
+
 ## Where the code is
 
 | Concern | Location |
@@ -247,9 +286,11 @@ That route rests on two Supabase behaviours:
 | Stripe fetching and assembly | `frontend/lib/admin/subscription-metrics.ts` |
 | Admin dashboard page | `frontend/app/mission-control/subscriptions/` |
 | Checkout, checkout-login, webhook, portal, sync routes | `frontend/app/api/stripe/` |
+| Sale settings and event names (client-safe); live check, kill switch, preview window, coupon env | `frontend/lib/promotions.ts`; `frontend/lib/promotions.server.ts` |
+| Statuses that keep premium, plan checks (directive-free, so route handlers can import them) | `frontend/lib/plan.ts` |
 | Browser tie for the return sign-in | `frontend/lib/stripe/checkoutBrowser.ts` |
 | Reconciliation (every 6 hours) | `scripts/reconcile_stripe_subscriptions.py` |
-| Shared test doubles | `frontend/test/fixtures.ts` (`makeStripeSubscription`, `makeStripeInvoice`) |
+| Shared test doubles | `frontend/test/fixtures.ts` (`makeStripeSubscription`, `makeStripeInvoice`, `makeCheckoutSession`) |
 
 Every list Stripe returns has a valid empty state, so a failed fetch is indistinguishable from a
 genuine zero once the array is passed on alone. `subscription-metrics.ts` carries an `ok` flag
@@ -262,6 +303,10 @@ There is no `STRIPE_SECRET_KEY` in the local environment — the key lives in Ve
 claude.ai Stripe MCP connector. When it lists only `authenticate` and `complete_authentication`, the
 connector is logged out: ask the user to run `/mcp` before anything else, and read account data
 yourself once it reconnects.
+
+The connector reaches the live account only (`list_available_accounts_or_orgs` returned one live
+context on 2026-11-24). A test-mode checkout therefore needs test keys and test-mode objects
+(prices, coupon, webhook endpoint) on a Vercel preview, set up by the user.
 
 `stripe_analytics` query runs and metric templates fail with "requires a Sigma subscription or
 trial". Claude in Chrome on `dashboard.stripe.com` returns "Permission denied for this action on
