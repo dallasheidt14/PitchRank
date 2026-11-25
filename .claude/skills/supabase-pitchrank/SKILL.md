@@ -1,6 +1,6 @@
 ---
 name: supabase-pitchrank
-description: Safe Supabase patterns for PitchRank - table schemas, query limits, timeouts, grants, and what NOT to do. Use when writing or reviewing a Supabase query, RPC, migration or a test double for supabase-py, tracing where a team_alias_map row came from, reading quarantine_games, bulk-updating games (including is_excluded), or diagnosing a statement timeout.
+description: Safe Supabase patterns for PitchRank - table schemas, query limits, timeouts, grants, and what NOT to do. Use when writing or reviewing a Supabase query, RPC, migration or a test double for supabase-py, tracing where a team_alias_map row came from, reading quarantine_games, bulk-updating games (including is_excluded), diagnosing a statement timeout, or answering a Supabase security-advisor email such as "table publicly accessible".
 ---
 
 # Supabase Safety Skill for PitchRank
@@ -25,8 +25,11 @@ browser or a log line. The browser roles (`anon`, and `authenticated` for a sign
 client) read `teams` and `games` through column grants that leave out the provider-id columns
 (`teams.provider_team_id`; `games.home_provider_id`, `away_provider_id`, `source_url`, `game_uid`),
 so a read that names one, or selects `*`, needs the service key. A column added to either table
-stays unreadable to them until a migration grants it. Keys live in root `.env` (or its
-`.env.local` override), both gitignored.
+stays unreadable to them until a migration grants it. `team_social_profiles` fails quietly
+instead: RLS shows them approved handles only, so a count of `needs_review`
+or `rejected` rows reads 0 with no error. `team_instagram_review_queue` refuses them outright.
+Read both with the service key. Keys live in root `.env` (or its `.env.local`
+override), both gitignored.
 
 ## Core Tables
 
@@ -608,6 +611,11 @@ inlined, and PG17 plans its body generically, so test the body as a `PREPARE`d s
 `SET plan_cache_mode = force_generic_plan`, as was done for `find_topup_teams`
 (`20260915120000`).
 
+To plan a query under a browser role's privileges and policies, run it through the `supabase-write`
+server's `execute_sql` after `SET LOCAL ROLE anon;` (the call is one transaction, so `SET LOCAL`
+holds). It does not apply that role's 3 s `statement_timeout`. The same `EXPLAIN (ANALYZE)` as `anon`
+and as `postgres`, which owns the tables and so bypasses RLS, isolates what a policy costs.
+
 ### Bulk `is_excluded` updates pay a scan per row
 
 Each row that flips to `is_excluded = true` fires `trg_propagate_game_exclusion`. The trigger
@@ -686,6 +694,14 @@ checked both. Resolve both before calling a gap a hole or dismissing one:
 TRUNCATE and REFERENCES are the asymmetry to remember: RLS governs SELECT/INSERT/UPDATE/
 DELETE only, so for those two the grant is the whole story.
 
+Supabase's `rls_disabled_in_public` lint, the one behind its "Critical: table publicly accessible"
+email, fires on an exposed table that `anon` or `authenticated` can SELECT while RLS is off, whatever
+its write grants, so a table closed by revoking writes alone keeps firing it. Close a table on both
+axes: revoke the writes and enable RLS, with a read policy where the browser roles still read. Write
+that policy with no TO clause. It admits only roles the SELECT grant already admits, while
+`TO anon, authenticated` hides every row from any other reader that neither owns the table nor holds
+BYPASSRLS.
+
 To test the `anon` grant from outside without changing data, send the public key requests that
 cannot write a row. A refusal is 401 with `42501` and "permission denied for table"; any other
 `42501` (a filter column the role cannot read, a refused sequence) proves nothing either way.
@@ -695,6 +711,10 @@ cannot write a row. A refusal is 401 with `42501` and "permission denied for tab
 - An INSERT that omits a NOT NULL column with no default, identity or filling trigger: 400 with
   `23502` means the grant and an insert policy admit the role. Omit a column that has a default and
   the row is written.
+
+Time public-key reads before and after a policy change over one reused HTTP session: a fresh
+connection per request costs about 400-700 ms against about 60 ms reused (measured 2026-11-24),
+enough to read network noise as a regression.
 
 ### Migration history cannot prove a grant EXISTS
 
@@ -961,7 +981,10 @@ the owner chose on 2026-11-13 to leave them off, so do not run either file to qu
 Before recommending a push, compare `mcp__supabase__list_migrations` with
 `supabase/migrations/` by name as well as version, and confirm the functions, tables or indexes
 the unlisted files create exist live. To ship one migration, run its SQL in the SQL editor,
-then record it with `supabase migration repair --status applied <version>`.
+then record it with `supabase migration repair --status applied <version>`. Through the
+`supabase-write` server's `execute_sql`, which runs a multi-statement call as one transaction, the
+file can instead end with `INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES
+('<version>', '<name>')`, both taken from the filename, so the ledger row commits only with the change.
 
 The editor shows only the last statement that returned rows, so a file with a helper `SELECT`
 partway through (one that loads an extension's library, say) ends by displaying that row even
@@ -994,6 +1017,12 @@ that path runs), apply everything first, then push. When it would break a busy p
 change first in a PR that leaves the migration out, apply the migration once that deploys, then push
 the migration file.
 
+Enabling RLS, CREATE POLICY and DROP POLICY take ACCESS EXCLUSIVE on the table and
+hold it until the file commits, and anon's 3 s `statement_timeout` counts the time a read waits behind
+it. Start such a file with `SET LOCAL lock_timeout = '1s'` and put the most-read tables last, so a lock
+that is not free fails the file instead of holding the earlier tables while it waits. Check
+`pg_stat_activity` and `pg_locks` for long transactions on those tables before applying.
+
 To search a function body, use `strpos(p.prosrc, 'x')`. `pg_catalog.position('x' in p.prosrc)` is
 a syntax error (42601) in any client, migrations included: only the bare keyword takes the `IN`
 form.
@@ -1011,7 +1040,8 @@ against the hosted project:
    TCP ranges, listing them each time with `netsh interface ipv4 show excludedportrange protocol=tcp`
    since they can move after a reboot. Inside one the server does not start: `pg_ctl` says only
    "could not start server", and pg.log shows the bind refused with "Permission denied" (55433 was,
-   on 2026-11-23).
+   on 2026-11-23). Run `pg_ctl ... start` with its output unpiped, since a pipe holds the shell until
+   the server exits, and confirm it with `pg_isready -h localhost -p <port>`.
 2. Stub what Supabase provides: roles `anon` and `authenticated` (NOLOGIN) and `service_role`
    (NOLOGIN BYPASSRLS); schema `auth` with `users (id uuid primary key)`, plus `auth.uid()` and
    `auth.role()` when a policy calls them; any function the migration's triggers call;
@@ -1019,7 +1049,8 @@ against the hosted project:
    `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role`
    and the same statement `ON SEQUENCES` and `ON FUNCTIONS`.
 3. Apply the migrations it builds on and seed a row, then apply the new one twice with
-   `psql -h localhost -p <port> -U smoke -d postgres -v ON_ERROR_STOP=1 -f <file>`. Run each insert
+   `psql -h localhost -p <port> -U smoke -d postgres -v ON_ERROR_STOP=1 -1 -f <file>`; `-1` runs the
+   file as one transaction, as it runs live, without which a `SET LOCAL` only warns. Run each insert
    that must be refused as its own `psql` call.
 4. Check `has_table_privilege`, `has_sequence_privilege` and `has_function_privilege` for `anon` and
    `authenticated`, `relrowsecurity`, and constraint counts in `pg_constraint`;
