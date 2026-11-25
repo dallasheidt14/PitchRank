@@ -981,6 +981,7 @@ NOT_A_WRITER = {
     "process-match-prediction-shadow.yml": "writes the match prediction shadow log",
     "process-prospective-heuristic-predictions.yml": "writes match predictions",
     "reconcile-stripe-daily.yml": "writes subscriptions and user profiles",
+    "scheduled-jobs-check.yml": "reads the database and run history and emails the owner; writes nothing",
     "settle-prospective-match-predictions.yml": "writes match predictions",
     "smoke-infographics.yml": "reads the infographic routes",
     "train-point-in-time-match-model.yml": "writes model artifacts and training runs",
