@@ -531,5 +531,5 @@ RESEND_API_KEY
     Safari 16 or Chrome 103, threw before `fetch` ran, so the sale banner silently never appeared on
     older devices; a hand-set `AbortController` timer works everywhere. Server-only code runs on Node
     and is exempt.
-25. **The `react-hooks/purity` lint rule refuses `Date.now()` during render** — read the clock in a
+25. **The React Hooks lint plugin's purity rule refuses `Date.now()` during render** — read the clock in a
     `useSyncExternalStore` snapshot (as `useInCampaignPeriod` does) or in an effect.
