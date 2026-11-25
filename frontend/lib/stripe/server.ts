@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { LIVE_SUBSCRIPTION_STATUSES } from '@/lib/plan';
 
 // Lazy-load Stripe client to avoid build-time initialization errors
 let stripeClient: Stripe | null = null;
@@ -56,6 +57,7 @@ export const WEBHOOK_EVENTS = {
   CHECKOUT_COMPLETED: 'checkout.session.completed',
   CHECKOUT_ASYNC_PAYMENT_SUCCEEDED: 'checkout.session.async_payment_succeeded',
   CHECKOUT_ASYNC_PAYMENT_FAILED: 'checkout.session.async_payment_failed',
+  CHECKOUT_SESSION_EXPIRED: 'checkout.session.expired',
   SUBSCRIPTION_UPDATED: 'customer.subscription.updated',
   SUBSCRIPTION_DELETED: 'customer.subscription.deleted',
   INVOICE_PAID: 'invoice.paid',
@@ -90,7 +92,7 @@ export function extractPeriodEnd(subscription: Stripe.Subscription): string {
  * Keep premium access during past_due (Stripe will retry payment).
  */
 export function mapStatusToPlan(status: Stripe.Subscription.Status): 'premium' | 'free' {
-  return status === 'active' || status === 'trialing' || status === 'past_due' ? 'premium' : 'free';
+  return (LIVE_SUBSCRIPTION_STATUSES as readonly string[]).includes(status) ? 'premium' : 'free';
 }
 
 /**

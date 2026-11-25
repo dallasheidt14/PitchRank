@@ -9,11 +9,14 @@ import {
 } from '@/lib/stripe/server';
 import { safeTeamPath } from '@/lib/auth/emailTokens';
 import { getSupabaseAdmin } from '@/lib/supabase/service';
+import { sanitizeAttribution } from '@/lib/attribution';
+import { LIVE_SUBSCRIPTION_STATUSES, hasPremiumPlan, isStandardRefusedStatus } from '@/lib/plan';
+import { findPromotionById, promotionEventName, type Promotion } from '@/lib/promotions';
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { notifyAdmin } from '@/lib/notifications/admin';
-import { sendSubscriptionCompleted } from '@/lib/analyticsServer';
+import { sendServerEvent, sendSubscriptionCompleted } from '@/lib/analyticsServer';
 import {
   tagSubscriber,
   untagSubscriber,
@@ -25,6 +28,7 @@ import {
 import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
 import { sendReturningSubscriberEmail } from '@/lib/email/returning-subscriber';
 import { sendDuplicateSubscriptionEmail } from '@/lib/email/duplicate-subscription';
+import { sendDuplicatePurchaseEmail } from '@/lib/email/duplicate-purchase';
 
 // Escape HTML to prevent injection via Stripe-sourced strings (customer name/email)
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -122,6 +126,130 @@ async function syncLifecycle(customerId: string, lifecycle: Lifecycle): Promise<
   }
 }
 
+/**
+ * Every live subscription on a customer, for the owner's refund decision. One page of 100 per status
+ * holds them all; `limit: 1` would answer only the sale itself.
+ */
+async function listLiveSubscriptions(customerId: string): Promise<Stripe.Subscription[]> {
+  const lists = await Promise.all(
+    LIVE_SUBSCRIPTION_STATUSES.map((status) => stripe.subscriptions.list({ customer: customerId, status, limit: 100 }))
+  );
+  return lists.flatMap((list) => list.data);
+}
+
+interface MatchedProfile {
+  id: string;
+  plan: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+}
+
+const MATCHED_PROFILE_COLUMNS = 'id, plan, stripe_customer_id, stripe_subscription_id, subscription_status';
+
+type UnlinkedReason = 'duplicate' | 'no_email' | 'account_exists_unlinked';
+
+const UNLINKED_REASON_TEXT: Record<UnlinkedReason, string> = {
+  duplicate: 'This buyer already holds Premium.',
+  no_email: 'The Stripe customer has no email, so no account could be found or created.',
+  account_exists_unlinked: 'A PitchRank login already uses this email, but no profile with it holds this subscription.',
+};
+
+const SAME_CUSTOMER_BEEHIIV_STEPS =
+  "After refunding, set this subscriber's newsletter lifecycle back to paid, re-add the premium tag and remove " +
+  'them from the win-back automation; reconcile restores premium within 6 hours.';
+
+function formatMoney(cents: number | null | undefined, currency: string | null | undefined): string {
+  return cents == null ? 'amount unknown' : `${(cents / 100).toFixed(2)} ${(currency ?? '').toUpperCase()}`.trim();
+}
+
+function describeSubscription(subscription: Stripe.Subscription, matchedProfile: MatchedProfile | null): string {
+  const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+  const price = subscription.items.data[0]?.price;
+  const interval = price?.recurring?.interval ? `/${price.recurring.interval}` : '';
+  const pointedAt =
+    matchedProfile?.stripe_subscription_id === subscription.id
+      ? `profile ${matchedProfile.id} points here`
+      : 'no profile points here';
+  return (
+    `• ${escapeHtml(subscription.id)} (${subscription.status}) on ${escapeHtml(customerId)}, created ` +
+    `${new Date(subscription.created * 1000).toISOString()}, ${formatMoney(price?.unit_amount, price?.currency)}${interval}, ${pointedAt}`
+  );
+}
+
+/**
+ * A paid sale checkout this handler leaves unlinked. The owner links or refunds it by hand, so the
+ * alert lists every live subscription involved and names none to refund: when two sit on one
+ * customer, the sync route may already have pointed the profile at either.
+ *
+ * The error line backs up the Telegram alert, which is best-effort.
+ */
+async function alertUnlinkedPaidCheckout({
+  reason,
+  session,
+  subscriptions,
+  matchedProfile,
+  email,
+  sameCustomer = false,
+  buyerNotice,
+}: {
+  reason: UnlinkedReason;
+  session: Stripe.Checkout.Session;
+  subscriptions: Stripe.Subscription[];
+  matchedProfile: MatchedProfile | null;
+  email: string | null;
+  sameCustomer?: boolean;
+  buyerNotice?: string;
+}): Promise<void> {
+  console.error('[webhook] PAID_CHECKOUT_NOT_LINKED', {
+    reason,
+    subscriptionId: session.subscription,
+    customerId: session.customer,
+  });
+  const profileLine = matchedProfile
+    ? `profile ${escapeHtml(matchedProfile.id)} (plan ${escapeHtml(matchedProfile.plan ?? 'none')}, customer ${escapeHtml(matchedProfile.stripe_customer_id ?? 'none')})`
+    : 'none';
+  await notifyAdmin(
+    `<b>⚠️ Paid checkout not linked: ${reason}</b>\n` +
+      `${UNLINKED_REASON_TEXT[reason]}\n` +
+      `<b>Email:</b> ${escapeHtml(email ?? 'none')}\n` +
+      `<b>Matched:</b> ${profileLine}\n` +
+      `<b>Checkout total:</b> ${formatMoney(session.amount_total, session.currency)}\n` +
+      `<b>Live subscriptions involved:</b>\n` +
+      subscriptions.map((subscription) => describeSubscription(subscription, matchedProfile)).join('\n') +
+      `\nNothing was changed. Decide in Stripe which, if any, to refund.` +
+      (buyerNotice ? `\n${buyerNotice}` : '') +
+      (sameCustomer ? `\n${SAME_CUSTOMER_BEEHIIV_STEPS}` : '')
+  );
+}
+
+type LinkState = Pick<MatchedProfile, 'stripe_customer_id' | 'stripe_subscription_id'>;
+
+/**
+ * Writes only while the row still holds the Stripe customer and subscription the caller read, and
+ * reports whether it did, so a writer that linked the row first keeps it. A failed update throws, so
+ * Stripe retries.
+ */
+async function writeProfileById(
+  profileId: string,
+  updates: Record<string, unknown>,
+  read: LinkState
+): Promise<boolean> {
+  let write = getSupabaseAdmin()
+    .from('user_profiles')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', profileId);
+  for (const column of ['stripe_customer_id', 'stripe_subscription_id'] as const) {
+    const value = read[column];
+    // `.eq(column, null)` never matches a NULL in PostgREST; `.is` does.
+    write = value === null ? write.is(column, null) : write.eq(column, value);
+  }
+  const { data, error } = await write.select('id');
+  if (error) throw new Error(`profile write failed: ${error.message}`);
+  return Boolean(data && data.length > 0);
+}
+
+const WRITE_MATCHED_NO_ROW = 'profile write matched no row';
+
 export async function POST(req: Request) {
   const body = await req.text();
   const headersList = await headers();
@@ -175,6 +303,12 @@ export async function POST(req: Request) {
         await notifyAdmin(
           `<b>Async payment failed</b>\nCheckout session ${escapeHtml(session.id)} — no access was granted.`
         );
+        break;
+      }
+
+      case WEBHOOK_EVENTS.CHECKOUT_SESSION_EXPIRED: {
+        const session = event.data.object as Stripe.Checkout.Session;
+        await handleCheckoutExpired(session);
         break;
       }
 
@@ -262,6 +396,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // Fetch subscription details to get period end and status (may be "trialing" for free trials)
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
+  // A sale always charges, so every sale checkout either links its subscription or reaches the owner.
+  // A cancelled one is almost always a re-delivery after the owner refunded a duplicate: it is still
+  // refused, since linking it would demote the account it duplicated, but it alerts no one again.
+  const saleSession = Boolean(session.metadata?.promotion);
+  const alertable = saleSession && subscription.status !== 'canceled';
+  const ignoredDuplicate = `[webhook] Ignored re-delivered duplicate sale ${subscriptionId} (already cancelled)`;
+
   const baseUpdates = {
     stripe_subscription_id: subscriptionId,
     subscription_status: subscription.status,
@@ -273,16 +414,38 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // Check if a user profile already exists for this Stripe customer (authenticated
   // checkout). We also read subscription_status to detect webhook re-deliveries
   // (Stripe is at-least-once) and skip duplicate Beehiiv automation enrollments.
-  const { data: existingProfile } = await getSupabaseAdmin()
+  const { data: existingProfile, error: existingProfileError } = await getSupabaseAdmin()
     .from('user_profiles')
-    .select('id, subscription_status')
+    .select(MATCHED_PROFILE_COLUMNS)
     .eq('stripe_customer_id', customerId)
     .maybeSingle();
+  // Read as "no profile", a failed lookup would send a linked buyer down the signed-out path, where
+  // their own premium row looks like a duplicate. Throwing makes Stripe retry instead.
+  if (existingProfileError) throw new Error(`profile lookup failed: ${existingProfileError.message}`);
   const priorStatus: string | null = existingProfile?.subscription_status ?? null;
 
   let customer: Stripe.Customer | Stripe.DeletedCustomer;
 
   if (existingProfile) {
+    if (saleSession) {
+      const others = (await listLiveSubscriptions(customerId)).filter((s) => s.id !== subscriptionId);
+      if (others.length > 0) {
+        if (alertable) {
+          const buyer = await stripe.customers.retrieve(customerId);
+          await rejectDuplicatePurchase({
+            session,
+            email: normalizeEmail((buyer as Stripe.Customer).email),
+            subscriptions: [subscription, ...others],
+            matchedProfile: existingProfile,
+            sameCustomer: true,
+          });
+        } else {
+          console.log(ignoredDuplicate);
+        }
+        return;
+      }
+    }
+
     // --- Authenticated checkout: profile exists, update it ---
     [, customer] = await Promise.all([
       updateUserProfile(getSupabaseAdmin(), customerId, baseUpdates),
@@ -291,78 +454,137 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   } else {
     // --- Anonymous checkout: create or link Supabase account ---
     customer = await stripe.customers.retrieve(customerId);
-    const email = (customer as Stripe.Customer).email;
+    const email = normalizeEmail((customer as Stripe.Customer).email);
 
     if (!email) {
       console.error('[webhook] Anonymous checkout but Stripe customer has no email');
+      if (alertable) {
+        await alertUnlinkedPaidCheckout({
+          reason: 'no_email',
+          session,
+          subscriptions: [subscription],
+          matchedProfile: null,
+          email: null,
+        });
+      }
       return;
     }
 
     const anonymousUpdates = { stripe_customer_id: customerId, ...baseUpdates };
 
     // Check if a user already exists with this email (signed up but checked out anonymously)
-    const { data: profileByEmail } = await getSupabaseAdmin()
+    const { data: profileByEmail, error: profileByEmailError } = await getSupabaseAdmin()
       .from('user_profiles')
-      .select('id, stripe_customer_id, stripe_subscription_id, subscription_status')
+      .select(MATCHED_PROFILE_COLUMNS)
       .eq('email', email)
       .maybeSingle();
+    if (profileByEmailError) throw new Error(`profile lookup failed: ${profileByEmailError.message}`);
+    // A concurrent delivery of this checkout linked the profile between the two lookups. Judged as a
+    // returning subscriber, it would have its own trial cancelled.
+    if (profileByEmail?.stripe_subscription_id === subscriptionId) {
+      console.log(`[webhook] Checkout ${subscriptionId} already linked by a concurrent delivery`);
+      return;
+    }
+
+    if (saleSession) {
+      const otherCustomerId =
+        profileByEmail?.stripe_customer_id && profileByEmail.stripe_customer_id !== customerId
+          ? profileByEmail.stripe_customer_id
+          : null;
+      const [onThisCustomer, onOtherCustomer] = await Promise.all([
+        listLiveSubscriptions(customerId),
+        otherCustomerId ? listLiveSubscriptions(otherCustomerId) : Promise.resolve([]),
+      ]);
+      const othersOnThisCustomer = onThisCustomer.filter((s) => s.id !== subscriptionId);
+      // Comped and admin accounts hold Premium with no live Stripe subscription. An admin row must
+      // never be overwritten to premium by the owner buying while signed out.
+      const premiumPlanElsewhere =
+        profileByEmail !== null &&
+        hasPremiumPlan(profileByEmail.plan) &&
+        profileByEmail.stripe_customer_id !== customerId;
+      if (othersOnThisCustomer.length > 0 || onOtherCustomer.length > 0 || premiumPlanElsewhere) {
+        if (alertable) {
+          await rejectDuplicatePurchase({
+            session,
+            email,
+            subscriptions: [subscription, ...othersOnThisCustomer, ...onOtherCustomer],
+            matchedProfile: profileByEmail,
+            sameCustomer: othersOnThisCustomer.length > 0,
+          });
+        } else {
+          console.log(ignoredDuplicate);
+        }
+        return;
+      }
+    }
 
     if (profileByEmail) {
-      // Anonymous checkout always starts a 7-day trial (the email isn't known
-      // until Stripe collects it), but trials are for first-time subscribers
-      // only. Don't silently convert the promised trial into an immediate
-      // charge — cancel the subscription (a trial opens with a $0 invoice,
-      // so nothing is charged), leave the profile untouched, and email them
-      // to log in, where checkout offers monthly/annual without a trial.
+      // A standard signed-out checkout always trials, since the email is unknown until Stripe collects
+      // it (a sale never trials), but trials are for first-time subscribers. Rather than turn the
+      // trial into a charge, cancel it (its $0 invoice charged nothing), leave the profile untouched,
+      // and email the buyer.
       const hasBillingHistory = Boolean(profileByEmail.stripe_customer_id || profileByEmail.stripe_subscription_id);
-      if (subscription.status === 'trialing' && hasBillingHistory) {
-        // Mirrors the check in the checkout route: these are the statuses that
-        // make /upgrade reject a new checkout, so they're the ones where telling
-        // someone to log in and re-subscribe dead-ends. past_due is deliberately
-        // absent — mapStatusToPlan calls it premium to hold access open during
-        // payment retries, but /upgrade still accepts it, so an unrecovered
+      // A comped or admin account holds Premium with no Stripe billing at all. Anyone can type its
+      // email into a signed-out checkout, so linking that checkout would hand the account to a
+      // stranger's trial, and to free when the trial lapses.
+      const compedAccount = !hasBillingHistory && hasPremiumPlan(profileByEmail.plan);
+      if (subscription.status === 'trialing' && (hasBillingHistory || compedAccount)) {
+        // Telling a comped account, or one whose subscription the checkout route would refuse, to log
+        // in and re-subscribe dead-ends. past_due is not refused — mapStatusToPlan calls it premium to
+        // hold access open during payment retries, but /upgrade still accepts it, so an unrecovered
         // account keeps the re-subscribe path that can actually fix its billing.
-        const alreadySubscribed =
-          profileByEmail.subscription_status === 'active' || profileByEmail.subscription_status === 'trialing';
+        const alreadySubscribed = compedAccount || isStandardRefusedStatus(profileByEmail.subscription_status);
+
+        const blocked = alreadySubscribed
+          ? {
+              send: sendDuplicateSubscriptionEmail,
+              log: `Canceled duplicate anonymous trial for ${profileByEmail.id} (account already holds Premium); set-password email`,
+              title: 'Duplicate checkout blocked',
+              detail: 'Second anonymous trial canceled (no charge); the account already holds Premium',
+              link: 'set-password link',
+            }
+          : {
+              send: sendReturningSubscriberEmail,
+              log: `Canceled anonymous trial for returning subscriber ${profileByEmail.id} (trial already used); re-subscribe email`,
+              title: 'Returning subscriber blocked from second trial',
+              detail: 'Anonymous trial checkout canceled (no charge)',
+              link: 'log-in-and-resubscribe link',
+            };
 
         await stripe.subscriptions.cancel(subscriptionId);
-        console.log(
-          alreadySubscribed
-            ? `[webhook] Canceled duplicate anonymous trial for ${profileByEmail.id} (subscription already live); sent set-password email`
-            : `[webhook] Canceled anonymous trial for returning subscriber ${profileByEmail.id} (trial already used); sent re-subscribe email`
-        );
 
+        let emailed = false;
         try {
-          await (alreadySubscribed ? sendDuplicateSubscriptionEmail(email) : sendReturningSubscriberEmail(email));
+          emailed = await blocked.send(email);
         } catch (emailError) {
           console.error('[webhook] Blocked-checkout email failed (non-fatal):', emailError);
         }
+        console.log(`[webhook] ${blocked.log} ${emailed ? 'sent' : 'not sent'}`);
 
         await notifyAdmin(
-          alreadySubscribed
-            ? `<b>Duplicate checkout blocked</b>\n` +
-                `<b>Email:</b> ${escapeHtml(email)}\n` +
-                `Second anonymous trial canceled (no charge); subscription already live, emailed set-password link.`
-            : `<b>Returning subscriber blocked from second trial</b>\n` +
-                `<b>Email:</b> ${escapeHtml(email)}\n` +
-                `Anonymous trial checkout canceled (no charge); emailed log-in-and-resubscribe link.`
+          `<b>${blocked.title}</b>\n` +
+            `<b>Email:</b> ${escapeHtml(email)}\n` +
+            `${blocked.detail}; ` +
+            (emailed ? `emailed ${blocked.link}.` : '<b>the email to the buyer did not send</b>: tell them yourself.')
         );
         return;
       }
 
       // A re-delivered checkout that was blocked above now reads as canceled. Linking it
-      // would overwrite the subscription this account already has.
-      if (hasBillingHistory && baseUpdates.plan !== 'premium') {
-        console.warn(`[webhook] Ignored ${subscription.status} checkout for billed account ${profileByEmail.id}`);
+      // would overwrite the subscription this account already has, or demote a comped one.
+      if ((hasBillingHistory && baseUpdates.plan !== 'premium') || compedAccount) {
+        console.warn(
+          `[webhook] Ignored ${subscription.status} checkout for ${compedAccount ? 'comped' : 'billed'} account ${profileByEmail.id}`
+        );
         return;
       }
 
       // A never-billed account, or a past subscriber whose checkout started
       // with no trial: link the subscription.
-      await getSupabaseAdmin()
-        .from('user_profiles')
-        .update({ ...anonymousUpdates, updated_at: new Date().toISOString() })
-        .eq('id', profileByEmail.id);
+      // A miss means another writer got there first: Stripe's retry is judged against the row it left.
+      if (!(await writeProfileById(profileByEmail.id, anonymousUpdates, profileByEmail))) {
+        throw new Error(WRITE_MATCHED_NO_ROW);
+      }
 
       await stripe.customers.update(customerId, {
         metadata: { supabase_user_id: profileByEmail.id },
@@ -381,15 +603,56 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       });
 
       if (createError || !newUser?.user) {
+        // The login exists but no profile carries this email (its profile has another one), or a
+        // concurrent delivery won the race. Either way a paid sale must not end silently.
+        if (saleSession && createError?.code === 'email_exists') {
+          const { data: reread, error: rereadError } = await getSupabaseAdmin()
+            .from('user_profiles')
+            .select(MATCHED_PROFILE_COLUMNS)
+            .eq('email', email)
+            .maybeSingle();
+          if (rereadError) throw new Error(`profile lookup failed: ${rereadError.message}`);
+          if (reread?.stripe_subscription_id === subscriptionId) {
+            console.log(`[webhook] Checkout ${subscriptionId} already linked by a concurrent delivery`);
+            return;
+          }
+          // A concurrent delivery created this login moments ago and has not linked it yet. The retry
+          // finds it linked, or a free profile to link, instead of alerting over a purchase in progress.
+          if (reread && !reread.stripe_subscription_id) {
+            throw new Error(`profile for checkout ${subscriptionId} is being linked by a concurrent delivery`);
+          }
+          if (alertable) {
+            await alertUnlinkedPaidCheckout({
+              reason: 'account_exists_unlinked',
+              session,
+              subscriptions: [subscription],
+              matchedProfile: reread,
+              email,
+            });
+          }
+          return;
+        }
         console.error('[webhook] Failed to create user for anonymous checkout:', createError);
         throw new Error(`Failed to create user for anonymous checkout: ${createError?.message}`);
       }
 
-      // Update the profile created by handle_new_user trigger
-      await getSupabaseAdmin()
-        .from('user_profiles')
-        .update({ ...anonymousUpdates, updated_at: new Date().toISOString() })
-        .eq('id', newUser.user.id);
+      // Update the profile created by handle_new_user trigger, which holds no Stripe ids yet. A twin
+      // delivery of this checkout can find that empty profile by email and link it first. The
+      // set-password email and sign-in marker below are sent only from here, so this delivery still
+      // goes on to send them; any other writer makes it retry.
+      const linked = await writeProfileById(newUser.user.id, anonymousUpdates, {
+        stripe_customer_id: null,
+        stripe_subscription_id: null,
+      });
+      if (!linked) {
+        const { data: current, error: currentError } = await getSupabaseAdmin()
+          .from('user_profiles')
+          .select('stripe_subscription_id')
+          .eq('id', newUser.user.id)
+          .maybeSingle();
+        if (currentError) throw new Error(`profile lookup failed: ${currentError.message}`);
+        if (current?.stripe_subscription_id !== subscriptionId) throw new Error(WRITE_MATCHED_NO_ROW);
+      }
 
       // Link Stripe customer to the new Supabase user for future webhook lookups
       await stripe.customers.update(customerId, {
@@ -448,6 +711,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       if (markError) {
         console.error('[webhook] Could not mark the new account for sign-in on return:', markError.code);
       }
+
+      // The twin that linked this checkout sends the signup notice, the newsletter steps and the purchase
+      // event below; only the set-password email and the marker fall to this delivery.
+      if (!linked) return;
     }
   }
 
@@ -500,6 +767,75 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       console.error('[webhook] Beehiiv sync failed (non-fatal):', tagError);
     }
   }
+
+  // Last, after every write: a throw anywhere above makes Stripe retry before this was ever sent.
+  // There is no dedupe beyond that, so transaction_id lets a count be made distinct.
+  const promotion = salePromotion(session);
+  if (promotion && baseUpdates.plan === 'premium') {
+    const charged =
+      session.amount_total != null && session.currency
+        ? { value: session.amount_total / 100, currency: session.currency.toUpperCase() }
+        : {};
+    await sendServerEvent(session.metadata?.ga_client_id, promotionEventName(promotion, 'purchase_completed'), {
+      transaction_id: subscriptionId,
+      ...charged,
+      ...saleEventParams(session, promotion),
+      ...sanitizeAttribution(session.metadata),
+    });
+  }
+}
+
+function salePromotion(session: Stripe.Checkout.Session): Promotion | null {
+  return session.metadata?.promotion ? findPromotionById(session.metadata.promotion) : null;
+}
+
+function saleEventParams(session: Stripe.Checkout.Session, promotion: Promotion): Record<string, string> {
+  return {
+    promotion_id: promotion.id,
+    ...(session.metadata?.segment ? { segment: session.metadata.segment } : {}),
+  };
+}
+
+/** Stripe keeps the case the buyer typed; stored profile emails, and auth logins, are lowercase. */
+function normalizeEmail(email: string | null | undefined): string | null {
+  return email?.trim().toLowerCase() || null;
+}
+
+/**
+ * A paid sale purchase by someone who already holds Premium. Nothing about their account changes;
+ * the owner refunds the purchase by hand, and the buyer is told so.
+ */
+async function rejectDuplicatePurchase({
+  email,
+  ...alert
+}: {
+  session: Stripe.Checkout.Session;
+  email: string | null;
+  subscriptions: Stripe.Subscription[];
+  matchedProfile: MatchedProfile | null;
+  sameCustomer: boolean;
+}): Promise<void> {
+  // Sent first, so the owner's alert can say whether the buyer was told.
+  const buyerEmailed = email ? await sendDuplicatePurchaseEmail(email) : false;
+  await alertUnlinkedPaidCheckout({
+    reason: 'duplicate',
+    email,
+    buyerNotice: buyerEmailed
+      ? 'The buyer was emailed that this purchase will be refunded within one business day.'
+      : '<b>The refund email to the buyer did not send</b>: tell them yourself.',
+    ...alert,
+  });
+}
+
+/** A sale checkout left unpaid until Stripe closed it, counted beside the sale's other funnel steps. */
+async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
+  const promotion = salePromotion(session);
+  if (!promotion) return;
+  await sendServerEvent(
+    session.metadata?.ga_client_id,
+    promotionEventName(promotion, 'checkout_expired'),
+    saleEventParams(session, promotion)
+  );
 }
 
 /**
@@ -696,6 +1032,21 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
   // charge is fully refunded — a partial refund leaves the subscriber active
   if (!charge.refunded) {
     console.log(`[webhook] Partial refund for customer ${customerId} (charge ${charge.id}); lifecycle unchanged`);
+    return;
+  }
+  // A refund on a customer no profile holds (a duplicate bought signed out) is skipped: routing it
+  // would put a paying subscriber's email into the win-back sequence. A same-customer duplicate is
+  // still routed; its alert tells the owner how to undo that.
+  const { data: linkedProfile, error: linkedProfileError } = await getSupabaseAdmin()
+    .from('user_profiles')
+    .select('id')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle();
+  if (linkedProfileError) throw new Error(`profile lookup failed: ${linkedProfileError.message}`);
+  if (!linkedProfile) {
+    console.log(
+      `[webhook] Refund for customer ${customerId} no profile holds (charge ${charge.id}); lifecycle unchanged`
+    );
     return;
   }
   console.log(`[webhook] Charge refunded for customer ${customerId} (charge ${charge.id})`);

@@ -9,6 +9,8 @@
  */
 
 import { gtagEvent } from './analytics';
+import { readAttribution } from './attribution';
+import { promotionEventName, type Promotion } from './promotions';
 import type {
   TeamEventPayload,
   FilterEventPayload,
@@ -20,6 +22,8 @@ import type {
   MissingGameEventPayload,
   UpgradeEventPayload,
   PaywallImpressionPayload,
+  PromotionStep,
+  PromotionEventPayload,
 } from '@/types/events';
 
 // ============================================================================
@@ -270,6 +274,26 @@ export function trackPlanSelected(payload: UpgradeEventPayload): void {
 export function trackCheckoutInitiated(payload: UpgradeEventPayload): void {
   gtagEvent('checkout_initiated', {
     plan: payload.plan,
+    price: payload.price,
+  });
+}
+
+/**
+ * Track a step in a sale's funnel, under the sale's own event name and campaign, so the next sale gets
+ * its own events with no code change; the session's UTM values ride along.
+ */
+export function trackPromotionEvent(
+  promotion: Promotion,
+  step: PromotionStep,
+  payload: PromotionEventPayload = {}
+): void {
+  const attribution = readAttribution();
+  gtagEvent(promotionEventName(promotion, step), {
+    ...attribution,
+    promotion_id: promotion.id,
+    campaign: promotion.campaign,
+    source: payload.source ?? attribution.source,
+    page_path: window.location.pathname,
     price: payload.price,
   });
 }

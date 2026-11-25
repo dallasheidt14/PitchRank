@@ -260,6 +260,49 @@ export function makeStripeSubscription(
 }
 
 /**
+ * Completed subscription-mode Checkout Session double. `amount_total` and `currency` are typed
+ * nullable in the pinned version, so a test can pass `null` for either.
+ */
+export function makeCheckoutSession(
+  overrides: {
+    id?: string;
+    customer?: string;
+    subscription?: string;
+    status?: Stripe.Checkout.Session.Status;
+    paymentStatus?: Stripe.Checkout.Session.PaymentStatus;
+    amountTotal?: number | null;
+    currency?: string | null;
+    metadata?: Record<string, string>;
+    created?: number;
+  } = {}
+): Stripe.Checkout.Session {
+  const {
+    id = `cs_${Math.random().toString(36).slice(2)}`,
+    customer = 'cus_x',
+    subscription = 'sub_x',
+    status = 'complete',
+    paymentStatus = 'paid',
+    amountTotal = 4788,
+    currency = 'usd',
+    metadata = {},
+    created = 0,
+  } = overrides;
+  return {
+    id,
+    object: 'checkout.session',
+    mode: 'subscription',
+    customer,
+    subscription,
+    status,
+    payment_status: paymentStatus,
+    amount_total: amountTotal,
+    currency,
+    metadata,
+    created,
+  } as unknown as Stripe.Checkout.Session;
+}
+
+/**
  * Stripe invoice double shaped for the pinned API version: the generating
  * subscription hangs off `parent.subscription_details`, not the top-level
  * `subscription` field removed in 2025-03-31.basil.

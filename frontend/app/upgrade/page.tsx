@@ -11,7 +11,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { safeTeamPath } from '@/lib/auth/emailTokens';
 import { startCheckout } from '@/lib/stripe/client';
 import { useUser } from '@/hooks/useUser';
-import { trackUpgradePageViewed, trackPlanSelected, trackCheckoutInitiated } from '@/lib/events';
+import { useLivePromotion } from '@/hooks/useLivePromotion';
+import { attributionFromParams, mergeAttribution, readAttribution, sanitizeAttribution } from '@/lib/attribution';
+import { formatCountdown, isInSaleAudience } from '@/lib/promotions';
+import { trackUpgradePageViewed, trackPlanSelected, trackCheckoutInitiated, trackPromotionEvent } from '@/lib/events';
 import { api } from '@/lib/api';
 import { cn, formatCountShort } from '@/lib/utils';
 import { FALLBACK_STATS } from '@/lib/stats';
@@ -35,6 +38,47 @@ const FEATURES = [
   { icon: Pencil, title: 'Edit Access', text: 'Merge duplicate teams and find missing game history' },
 ];
 
+function FeatureList() {
+  return (
+    <ul className="space-y-3">
+      {FEATURES.map((feature, index) => (
+        <li key={index} className="flex items-start gap-3">
+          <div className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+            <Check className="w-3 h-3 text-primary" />
+          </div>
+          <div>
+            <span className="text-sm font-medium">{feature.title}</span>
+            <p className="text-xs text-muted-foreground">{feature.text}</p>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Processing() {
+  return (
+    <span className="flex items-center gap-2">
+      <span className="animate-spin">&#9696;</span>
+      Processing...
+    </span>
+  );
+}
+
+/**
+ * The attribution a sale checkout sends to Stripe: the URL's values, then the session's stored ones,
+ * and the page's own source when neither recorded one. The sale's `offer_view` and `checkout_started`
+ * events take their `source` from it too, each resolved when it fires. A banner claim on /upgrade
+ * after the view rewrites the stored source, so the checkout is credited to the banner unless this
+ * page's URL names its own source, which wins.
+ */
+function saleAttribution(searchParams: URLSearchParams, pageSource: string) {
+  return sanitizeAttribution({
+    source: pageSource,
+    ...mergeAttribution(attributionFromParams(searchParams), readAttribution()),
+  });
+}
+
 export default function UpgradePage() {
   return (
     // Holds the page's height while search params resolve, so the footer does not jump.
@@ -45,9 +89,18 @@ export default function UpgradePage() {
 }
 
 function UpgradePageContent() {
-  const { user, isLoading: userLoading } = useUser();
+  // `error` below is the checkout's; the profile's goes to the sale audience check only.
+  const { user, profile, isLoading: userLoading, error: profileError } = useUser();
   const searchParams = useSearchParams();
-  const [loadingPlan, setLoadingPlan] = useState<'monthly' | 'yearly' | null>(null);
+  const { promotion, state: promotionState, isLive, preview, remainingMs } = useLivePromotion({ profile });
+  const sale =
+    isLive && promotion && isInSaleAudience({ user, profile, isLoading: userLoading, error: profileError, preview })
+      ? promotion
+      : null;
+  const campaign = searchParams.get('campaign');
+  const saleEndedNotice =
+    promotion && promotionState === 'ended' && campaign === promotion.campaign ? promotion.copy.endedNotice : null;
+  const [loadingPlan, setLoadingPlan] = useState<'monthly' | 'yearly' | 'promotion' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const errorBanner = useRef<HTMLDivElement>(null);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
@@ -109,18 +162,31 @@ function UpgradePageContent() {
     trackUpgradePageViewed({ source });
   }, [source]);
 
+  const offerViewTracked = useRef(false);
+  useEffect(() => {
+    if (!sale || offerViewTracked.current) return;
+    offerViewTracked.current = true;
+    trackPromotionEvent(sale, 'offer_view', {
+      source: saleAttribution(searchParams, source).source,
+      price: sale.display.amountCents / 100,
+    });
+  }, [sale, source, searchParams]);
+
   // The banner sits above the plan cards, so a failure from a button further down would otherwise show nothing.
   useEffect(() => {
     errorBanner.current?.scrollIntoView({ block: 'center' });
   }, [error]);
 
-  const handleUpgrade = async (plan: 'monthly' | 'yearly') => {
-    // Wait for auth state to resolve (user or null)
-    if (userLoading) return;
+  const handleUpgrade = async (plan: 'monthly' | 'yearly' | 'promotion') => {
+    const price = { monthly: 6.99, yearly: 69.99, promotion: sale ? sale.display.amountCents / 100 : null }[plan];
+    // Wait for auth state to resolve (user or null); the sale card's price is null once the sale has gone.
+    if (userLoading || price === null) return;
 
+    // A sale is the yearly price with a first-year discount, so the funnel counts it as yearly.
+    const trackedPlan = plan === 'monthly' ? 'monthly' : 'yearly';
     trackPlanSelected({
-      plan,
-      price: plan === 'monthly' ? 6.99 : 69.99,
+      plan: trackedPlan,
+      price,
       source,
     });
 
@@ -136,8 +202,15 @@ function UpgradePageContent() {
         });
         throw new Error('Pricing is not configured. Please contact support.');
       }
-      trackCheckoutInitiated({ plan, price: plan === 'monthly' ? 6.99 : 69.99 });
-      await startCheckout(priceId, tappedTeamPath);
+      trackCheckoutInitiated({ plan: trackedPlan, price });
+      if (plan === 'promotion' && sale) {
+        // Resolved once, so the browser event and the purchase Stripe records name the same source.
+        const attribution = saleAttribution(searchParams, source);
+        trackPromotionEvent(sale, 'checkout_started', { source: attribution.source, price });
+        await startCheckout(priceId, tappedTeamPath, { promotion: sale.id, attribution });
+      } else {
+        await startCheckout(priceId, tappedTeamPath);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
       setLoadingPlan(null);
@@ -161,6 +234,15 @@ function UpgradePageContent() {
             </>
           )}
         </p>
+
+        {saleEndedNotice && (
+          <div
+            role="status"
+            className="max-w-xl mx-auto mb-8 rounded-lg border bg-muted/50 p-4 text-center text-sm font-medium"
+          >
+            {saleEndedNotice}
+          </div>
+        )}
 
         {(tappedTeam || tappedTeamLoading) && (
           <div className="max-w-xl mx-auto mb-8 rounded-lg border border-primary/30 bg-primary/5 p-4 text-center">
@@ -189,7 +271,9 @@ function UpgradePageContent() {
                 </div>
               </div>
             )}
-            <p className="text-sm mt-2">Start your free trial to open this team&apos;s full page.</p>
+            <p className="text-sm mt-2">
+              {sale ? sale.copy.upgradeHeaderLine : <>Start your free trial to open this team&apos;s full page.</>}
+            </p>
           </div>
         )}
 
@@ -262,7 +346,7 @@ function UpgradePageContent() {
         </div>
 
         {/* Pricing Cards */}
-        <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+        <div className={cn('grid md:grid-cols-2 gap-8 mx-auto', sale ? 'lg:grid-cols-3 max-w-6xl' : 'max-w-4xl')}>
           {/* Monthly Plan */}
           <Card
             variant="elevated"
@@ -281,19 +365,7 @@ function UpgradePageContent() {
               </div>
               <p className="text-sm text-green-700 font-medium mb-1">7-day free trial</p>
               <p className="text-xs text-muted-foreground mb-4">After trial: $6.99/month. Cancel anytime.</p>
-              <ul className="space-y-3">
-                {FEATURES.map((feature, index) => (
-                  <li key={index} className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
-                      <Check className="w-3 h-3 text-primary" />
-                    </div>
-                    <div>
-                      <span className="text-sm font-medium">{feature.title}</span>
-                      <p className="text-xs text-muted-foreground">{feature.text}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <FeatureList />
             </CardContent>
             <CardFooter className="flex flex-col gap-2">
               <Button
@@ -307,10 +379,7 @@ function UpgradePageContent() {
                 disabled={loadingPlan !== null || userLoading}
               >
                 {loadingPlan === 'monthly' ? (
-                  <span className="flex items-center gap-2">
-                    <span className="animate-spin">&#9696;</span>
-                    Processing...
-                  </span>
+                  <Processing />
                 ) : (
                   <>
                     Start Free Trial
@@ -321,6 +390,59 @@ function UpgradePageContent() {
               <p className="text-xs text-muted-foreground">7-day free trial · Cancel anytime</p>
             </CardFooter>
           </Card>
+
+          {/* Sale Plan: between the two on computers; above them on tablets, so they keep their two-column width; first on phones */}
+          {sale && (
+            <Card
+              id="sale"
+              variant="primary"
+              className="relative order-first lg:order-0 md:col-span-2 md:mx-auto md:w-full md:max-w-md lg:col-span-1 lg:max-w-none ring-4 ring-accent shadow-xl lg:scale-105 scroll-mt-[calc(var(--site-header-height)+1.5rem)]"
+            >
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                <Badge className="bg-accent text-accent-foreground shadow-lg">{sale.display.percentOff} OFF</Badge>
+              </div>
+              <CardHeader>
+                <CardTitle className="text-2xl font-display">{sale.copy.cardLabel}</CardTitle>
+                <CardDescription className="tabular-nums">Ends in {formatCountdown(remainingMs)}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-2">
+                  <span className="text-4xl font-bold">{sale.display.monthlyPrice}</span>
+                  <span className="text-muted-foreground">/mo</span>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    <span className="font-semibold text-foreground">{sale.display.firstYearPrice}</span> billed today
+                    for your first year
+                  </div>
+                  <div className="text-sm mt-1">
+                    <span className="line-through text-muted-foreground">{sale.display.listPrice}</span>
+                    <span className="text-green-700 font-medium ml-1">{sale.display.percentOff} OFF</span>
+                  </div>
+                </div>
+                <p className="text-sm text-green-700 font-medium mb-1">Premium access starts immediately</p>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Renews at {sale.display.listPrice}/year. Cancel anytime.
+                </p>
+                <FeatureList />
+              </CardContent>
+              <CardFooter className="flex flex-col gap-2">
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={() => handleUpgrade('promotion')}
+                  disabled={loadingPlan !== null || userLoading}
+                >
+                  {loadingPlan === 'promotion' ? (
+                    <Processing />
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 mr-2" />
+                      {sale.copy.cta}
+                    </>
+                  )}
+                </Button>
+              </CardFooter>
+            </Card>
+          )}
 
           {/* Yearly Plan */}
           <Card
@@ -355,19 +477,7 @@ function UpgradePageContent() {
               </div>
               <p className="text-sm text-green-700 font-medium mb-1">7-day free trial</p>
               <p className="text-xs text-muted-foreground mb-4">After trial: $69.99/year. Cancel anytime.</p>
-              <ul className="space-y-3">
-                {FEATURES.map((feature, index) => (
-                  <li key={index} className="flex items-start gap-3">
-                    <div className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
-                      <Check className="w-3 h-3 text-primary" />
-                    </div>
-                    <div>
-                      <span className="text-sm font-medium">{feature.title}</span>
-                      <p className="text-xs text-muted-foreground">{feature.text}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <FeatureList />
             </CardContent>
             <CardFooter className="flex flex-col gap-2">
               <Button
@@ -380,10 +490,7 @@ function UpgradePageContent() {
                 disabled={loadingPlan !== null || userLoading}
               >
                 {loadingPlan === 'yearly' ? (
-                  <span className="flex items-center gap-2">
-                    <span className="animate-spin">&#9696;</span>
-                    Processing...
-                  </span>
+                  <Processing />
                 ) : (
                   <>
                     <Crown className="w-4 h-4 mr-2" />

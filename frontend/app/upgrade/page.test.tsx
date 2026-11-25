@@ -10,18 +10,33 @@ const { mockPreview, mockStartCheckout, state } = vi.hoisted(() => {
   return {
     mockPreview: vi.fn(),
     mockStartCheckout: vi.fn(),
-    state: { next: null as string | null, user: null as { id: string } | null, userLoading: false },
+    state: {
+      next: null as string | null,
+      params: {} as Record<string, string>,
+      user: null as { id: string } | null,
+      profile: null as { plan: string } | null,
+      profileError: null as Error | null,
+      userLoading: false,
+    },
   };
 });
 
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(state.next ? { next: state.next } : {}),
+  useSearchParams: () => new URLSearchParams({ ...(state.next ? { next: state.next } : {}), ...state.params }),
 }));
-vi.mock('@/hooks/useUser', () => ({ useUser: () => ({ user: state.user, isLoading: state.userLoading }) }));
+vi.mock('@/hooks/useUser', () => ({
+  useUser: () => ({
+    user: state.user,
+    profile: state.profile,
+    isLoading: state.userLoading,
+    error: state.profileError,
+  }),
+}));
 vi.mock('@/lib/events', () => ({
   trackUpgradePageViewed: vi.fn(),
   trackPlanSelected: vi.fn(),
   trackCheckoutInitiated: vi.fn(),
+  trackPromotionEvent: vi.fn(),
 }));
 vi.mock('@/lib/stripe/client', () => ({ startCheckout: mockStartCheckout }));
 vi.mock('@/lib/api', () => ({
@@ -32,9 +47,35 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import UpgradePage from './page';
+import { resetLivePromotionForTests } from '@/hooks/useLivePromotion';
+import { PROMOTIONS } from '@/lib/promotions';
+import { trackCheckoutInitiated, trackPlanSelected, trackPromotionEvent } from '@/lib/events';
+
+const BLACK_FRIDAY = PROMOTIONS[0];
+const DURING = new Date('2026-11-28T12:00:00Z');
+const OUTSIDE = new Date('2026-10-01T12:00:00Z');
 
 let container: HTMLDivElement;
 let root: Root;
+
+/** What `/api/promotion` answers; the page's own hook asks it once a campaign period is near. */
+function answerPromotion(answer: 'live' | 'upcoming' | 'ended') {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({ state: answer, promotion: BLACK_FRIDAY, serverNow: Date.now() }),
+    }))
+  );
+}
+
+/** Lets the promotion request resolve and the page re-render. */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
 
 async function render() {
   await act(async () => {
@@ -70,8 +111,17 @@ async function tap(element: HTMLElement) {
 beforeEach(() => {
   vi.clearAllMocks();
   state.next = null;
+  state.params = {};
   state.user = null;
+  state.profile = null;
+  state.profileError = null;
   state.userLoading = false;
+  // Outside any campaign period unless a test says otherwise, so the promotion hook fetches nothing.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(OUTSIDE);
+  resetLivePromotionForTests();
+  window.sessionStorage.clear();
+  window.history.replaceState(null, '', '/upgrade');
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -80,6 +130,9 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  resetLivePromotionForTests();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('UpgradePage paywall', () => {
@@ -262,6 +315,13 @@ describe('UpgradePage paywall', () => {
     expect(hrefs.filter((href) => href.startsWith('/login'))).toEqual([]);
   });
 
+  it('keeps the free-trial line under the tapped team outside a sale', async () => {
+    state.next = `/teams/${TEAM_ID}`;
+    mockPreview.mockResolvedValue({ team_name: 'Phoenix Rising 2014', club_name: null, age: 12, gender: 'M' });
+    await render();
+    expect(container.textContent).toContain("Start your free trial to open this team's full page.");
+  });
+
   it('drops the old team banner when the destination is no longer a team', async () => {
     state.next = `/teams/${TEAM_ID}`;
     mockPreview.mockResolvedValue({
@@ -276,5 +336,191 @@ describe('UpgradePage paywall', () => {
     state.next = '/compare';
     await render();
     expect(container.textContent).not.toContain('Phoenix Rising 2014');
+  });
+});
+
+describe('UpgradePage during a sale', () => {
+  async function renderDuring(answer: 'live' | 'upcoming' | 'ended' = 'live', at: Date = DURING) {
+    vi.setSystemTime(at);
+    answerPromotion(answer);
+    await render();
+    await settle();
+  }
+
+  const saleCard = () => container.querySelector<HTMLElement>('#sale');
+
+  it('adds the sale card between Monthly and Yearly, leaving both unchanged', async () => {
+    await renderDuring();
+
+    const cards = Array.from(container.querySelectorAll<HTMLElement>('[data-slot="card"]'));
+    expect(cards.map((card) => card.id)).toEqual(['', 'sale', '']);
+    expect(cards[0].textContent).toContain(MONTHLY_CARD);
+    expect(cards[2].textContent).toContain(YEARLY_CARD);
+    expect(cards[0].parentElement!.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['grid', 'md:grid-cols-2', 'lg:grid-cols-3'])
+    );
+    expect(saleCard()!.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['order-first', 'lg:order-0', 'md:col-span-2', 'lg:col-span-1'])
+    );
+    expect(saleCard()!.textContent).toContain('$3.99');
+    expect(saleCard()!.textContent).toContain('$47.88 billed today for your first year');
+    expect(saleCard()!.textContent).toContain('Renews at $69.99/year. Cancel anytime.');
+    expect(saleCard()!.textContent).toContain('Ends in 2d 19h 0m');
+    expect(planCard(MONTHLY_CARD).textContent).toContain('After trial: $6.99/month. Cancel anytime.');
+    expect(planCard(YEARLY_CARD).textContent).toContain('After trial: $69.99/year. Cancel anytime.');
+    expect(trackPromotionEvent).toHaveBeenCalledWith(BLACK_FRIDAY, 'offer_view', { source: 'direct', price: 47.88 });
+  });
+
+  it.each([
+    ['before the sale starts', 'upcoming', new Date('2026-11-24T12:00:00Z')],
+    ['after it ends', 'ended', new Date('2026-12-02T12:00:00Z')],
+  ] as const)('shows the two usual cards %s', async (_label, answer, at) => {
+    await renderDuring(answer, at);
+
+    expect(saleCard()).toBeNull();
+    expect(container.querySelectorAll('[data-slot="card"]')).toHaveLength(2);
+  });
+
+  it.each([
+    ['a premium (paying or trialing) account', { plan: 'premium' }],
+    ['an admin', { plan: 'admin' }],
+  ])('offers no sale to %s', async (_label, profile) => {
+    state.user = { id: 'user-1' };
+    state.profile = profile;
+    await renderDuring();
+
+    expect(saleCard()).toBeNull();
+  });
+
+  it('offers no sale to a signed-in viewer whose profile did not load', async () => {
+    state.user = { id: 'user-1' };
+    state.profile = null;
+    state.profileError = new Error('Could not load your subscription details');
+    await renderDuring();
+
+    expect(saleCard()).toBeNull();
+  });
+
+  it('offers no sale on a retained free profile once the profile fetch has failed', async () => {
+    state.user = { id: 'user-1' };
+    state.profile = { plan: 'free' };
+    state.profileError = new Error('Could not load your subscription details');
+    await renderDuring();
+
+    expect(saleCard()).toBeNull();
+  });
+
+  it('offers the sale to a free account', async () => {
+    state.user = { id: 'user-1' };
+    state.profile = { plan: 'free' };
+    await renderDuring();
+
+    expect(saleCard()).not.toBeNull();
+  });
+
+  it('starts the sale checkout with its id and attribution, counted as yearly at the sale price', async () => {
+    state.params = { campaign: 'black-friday-2026', source: 'banner' };
+    window.sessionStorage.setItem('pitchrank_attribution', JSON.stringify({ utm_source: 'facebook' }));
+    await renderDuring();
+
+    await tap(saleCard()!.querySelector('button')!);
+
+    expect(mockStartCheckout).toHaveBeenCalledWith('price_yearly_test', null, {
+      promotion: 'black-friday-2026',
+      attribution: { campaign: 'black-friday-2026', source: 'banner', utm_source: 'facebook' },
+    });
+    expect(trackPlanSelected).toHaveBeenCalledWith({ plan: 'yearly', price: 47.88, source: 'banner' });
+    expect(trackCheckoutInitiated).toHaveBeenCalledWith({ plan: 'yearly', price: 47.88 });
+    expect(trackPromotionEvent).toHaveBeenCalledWith(BLACK_FRIDAY, 'checkout_started', {
+      source: 'banner',
+      price: 47.88,
+    });
+  });
+
+  it('sends the page source to Stripe and the checkout event alike when nothing recorded one', async () => {
+    await renderDuring();
+
+    await tap(saleCard()!.querySelector('button')!);
+
+    expect(mockStartCheckout).toHaveBeenCalledWith('price_yearly_test', null, {
+      promotion: 'black-friday-2026',
+      attribution: { source: 'direct' },
+    });
+    expect(trackPromotionEvent).toHaveBeenCalledWith(BLACK_FRIDAY, 'checkout_started', {
+      source: 'direct',
+      price: 47.88,
+    });
+  });
+
+  it("prefers this page's own campaign link over the session's first touch for the same key", async () => {
+    window.sessionStorage.setItem('pitchrank_attribution', JSON.stringify({ source: 'email' }));
+    state.params = { source: 'banner' };
+    await renderDuring();
+
+    expect(trackPromotionEvent).toHaveBeenCalledWith(BLACK_FRIDAY, 'offer_view', { source: 'banner', price: 47.88 });
+  });
+
+  it("counts the sale's view under the same source its checkout will name", async () => {
+    window.sessionStorage.setItem('pitchrank_attribution', JSON.stringify({ source: 'banner' }));
+    state.next = `/teams/${TEAM_ID}`;
+    await renderDuring();
+
+    expect(trackPromotionEvent).toHaveBeenCalledWith(BLACK_FRIDAY, 'offer_view', { source: 'banner', price: 47.88 });
+  });
+
+  it('names the sale under the tapped team', async () => {
+    state.next = `/teams/${TEAM_ID}`;
+    mockPreview.mockResolvedValue({ team_name: 'Phoenix Rising 2014', club_name: null, age: 12, gender: 'M' });
+    await renderDuring();
+
+    expect(container.textContent).toContain(BLACK_FRIDAY.copy.upgradeHeaderLine);
+    expect(container.textContent).not.toContain('Start your free trial to open');
+  });
+
+  it('shows an admin the sale card in preview before it starts', async () => {
+    window.history.replaceState(null, '', '/upgrade?promo_preview=1');
+    state.user = { id: 'admin-1' };
+    state.profile = { plan: 'admin' };
+    await renderDuring('upcoming', new Date('2026-11-24T12:00:00Z'));
+
+    expect(saleCard()).not.toBeNull();
+  });
+
+  it('shows no preview to a free account asking for one', async () => {
+    window.history.replaceState(null, '', '/upgrade?promo_preview=1');
+    state.user = { id: 'user-1' };
+    state.profile = { plan: 'free' };
+    await renderDuring('upcoming', new Date('2026-11-24T12:00:00Z'));
+
+    expect(saleCard()).toBeNull();
+  });
+
+  describe('a campaign link', () => {
+    const ended = () => container.querySelector('[role="status"]')?.textContent ?? null;
+
+    it.each([
+      ['after the sale ends', 'ended', new Date('2026-12-02T12:00:00Z')],
+      ['once the kill switch is on', 'ended', DURING],
+    ] as const)('says the sale has ended %s', async (_label, answer, at) => {
+      state.params = { campaign: 'black-friday-2026' };
+      await renderDuring(answer, at);
+
+      expect(ended()).toBe('The Black Friday sale has ended.');
+    });
+
+    it('shows the normal page before the sale starts', async () => {
+      state.params = { campaign: 'black-friday-2026' };
+      await renderDuring('upcoming', new Date('2026-11-24T12:00:00Z'));
+
+      expect(ended()).toBeNull();
+      expect(saleCard()).toBeNull();
+    });
+
+    it('says nothing about a sale the link does not name', async () => {
+      state.params = { campaign: 'spring-2027' };
+      await renderDuring('ended', new Date('2026-12-02T12:00:00Z'));
+
+      expect(ended()).toBeNull();
+    });
   });
 });

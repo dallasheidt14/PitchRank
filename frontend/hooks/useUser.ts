@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClientSupabase } from '@/lib/supabase/client';
+import { hasAdminPlan, hasPremiumPlan } from '@/lib/plan';
 import type { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 
 export interface UserProfile {
@@ -23,16 +24,14 @@ export interface UserProfile {
  * Check if user has premium access (premium or admin plan)
  */
 export function hasPremiumAccess(profile: UserProfile | null): boolean {
-  if (!profile) return false;
-  return profile.plan === 'premium' || profile.plan === 'admin';
+  return profile ? hasPremiumPlan(profile.plan) : false;
 }
 
 /**
  * Check if user has admin access
  */
 export function hasAdminAccess(profile: UserProfile | null): boolean {
-  if (!profile) return false;
-  return profile.plan === 'admin';
+  return profile ? hasAdminPlan(profile.plan) : false;
 }
 
 const PROFILE_FETCH_ATTEMPTS = 3;

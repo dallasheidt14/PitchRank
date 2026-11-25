@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted so mock fns are available inside vi.mock factories (which are hoisted)
 const { mockGetUser, mockFrom, mockCustomersCreate, mockCheckoutSessionsCreate, mockCheckRateLimit, mockCookieGet } =
@@ -47,6 +47,9 @@ vi.mock('@/lib/stripe/server', () => ({
     checkout: {
       sessions: {
         create: mockCheckoutSessionsCreate,
+        list: vi.fn().mockResolvedValue({ data: [], has_more: false }),
+        expire: vi.fn(),
+        retrieve: vi.fn(),
       },
     },
     subscriptions: {
@@ -75,6 +78,14 @@ describe('POST /api/stripe/checkout', () => {
     vi.clearAllMocks();
     mockCheckRateLimit.mockReturnValue(true);
     process.env.NEXT_PUBLIC_SITE_URL = 'https://pitchrank.io';
+    // Pinned outside any sale: during one, a standard checkout also lists and expires open sessions,
+    // which this suite's double does not model.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-01T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('returns 429 when the rate limiter denies the request', async () => {
@@ -293,9 +304,8 @@ describe('POST /api/stripe/checkout', () => {
     const res = await POST(makeRequest({ priceId: 'price_monthly' }));
 
     expect(res.status).toBe(500);
-    const body = await res.json();
-    // The route currently includes the error message - verify it exists
-    expect(body.error).toBeDefined();
-    expect(typeof body.error).toBe('string');
+    // Reached Stripe, so the 500 is this throw and not an earlier step failing.
+    expect(mockCheckoutSessionsCreate).toHaveBeenCalledTimes(1);
+    expect(await res.json()).toEqual({ error: 'Failed to create checkout session' });
   });
 });
