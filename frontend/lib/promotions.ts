@@ -52,8 +52,8 @@ export interface Promotion {
 export const PROMOTIONS: readonly Promotion[] = [
   {
     id: 'black-friday-2026',
-    // Fri 2026-11-27 00:00 through Mon 2026-11-30 23:59:59, America/Phoenix (UTC-7 all year).
-    startsAt: '2026-11-27T07:00:00Z',
+    // Wed 2026-11-25 00:00 through Mon 2026-11-30 23:59:59, America/Phoenix (UTC-7 all year).
+    startsAt: '2026-11-25T07:00:00Z',
     endsAt: '2026-12-01T07:00:00Z',
     planInterval: 'year',
     campaign: 'black-friday-2026',

@@ -1,20 +1,21 @@
 # Black Friday 2026 sale — design
 
-Status: approved 2026-11-24, then revised by the owner's rulings during planning.
+Status: approved 2026-11-24, then revised by the owner's rulings during planning and before launch.
 
 Where this design and `.turbo/plans/black-friday-2026-sale.md` differ, the plan wins.
 
 ## Intent
 
-Run a four-day sale on PitchRank Premium annual to bring in **new paying annual subscribers and cash
-up front**, not free trials. Success is net new paying annual subscribers over the four days. The
+Run a six-day sale on PitchRank Premium annual to bring in **new paying annual subscribers and cash
+up front**, not free trials. Success is net new paying annual subscribers over the six days. The
 build must be reusable: the next sale should be a new settings entry, not a new feature.
 
 ## The offer (owner-decided)
 
-- **Window:** Friday 2026-11-27 12:00 AM through Monday 2026-11-30 11:59:59 PM, Arizona time
-  (America/Phoenix, UTC-7 all year). In UTC: `2026-11-27T07:00:00Z` up to, not including,
-  `2026-12-01T07:00:00Z`.
+- **Window:** Wednesday 2026-11-25 12:00 AM through Monday 2026-11-30 11:59:59 PM, Arizona time
+  (America/Phoenix, UTC-7 all year). In UTC: `2026-11-25T07:00:00Z` up to, not including,
+  `2026-12-01T07:00:00Z`. The owner moved the start up from Friday (owner, 2026-11-25, before
+  launch); elsewhere in this doc, "Friday" means this start.
 - **Price:** first year of the existing annual plan for **$47.88** (shown as **$3.99/mo**), charged
   immediately, **no free trial**. It renews at the standard **$69.99/year**. Regular price $69.99,
   32% off.
@@ -34,7 +35,7 @@ build must be reusable: the next sale should be a new settings entry, not a new 
 
 - Sale settings live in code (one settings file), plus an expiry date on the Stripe coupon as a
   second, independent stop (approach 1 below).
-- New customers only (as defined above), Friday through end of Monday.
+- New customers only (as defined above), for the window above.
 
 ## Calls made in the conversation (stated to the owner, not objected to)
 
@@ -46,8 +47,9 @@ build must be reusable: the next sale should be a new settings entry, not a new 
    someone who already holds Premium buys while signed out, the webhook leaves their account alone,
    alerts the owner on Telegram with every live subscription involved, and emails the buyer that a
    refund is coming. The owner refunds and cancels it in Stripe. Nothing is refunded automatically.
-3. **The copy changes from one day to four.** "ONE DAY / 24 HOURS ONLY" becomes Black Friday through
-   Cyber Monday wording. The countdown runs to Monday midnight Arizona time.
+3. **The copy changes from one day to the whole sale.** "ONE DAY / 24 HOURS ONLY" becomes Black Friday
+   through Cyber Monday wording. The countdown runs to Monday midnight Arizona time. The owner kept
+   that wording when the start moved to Wednesday (owner, 2026-11-25).
 4. **Customer-facing pieces ship first,** because they must be live by Thursday night. The admin
    campaign summary ships after the sale starts. It reads after-the-fact data, so nothing is lost.
 
@@ -80,6 +82,9 @@ build must be reusable: the next sale should be a new settings entry, not a new 
 - **Automated tests** cover every money path with Stripe doubles. They follow the repo's double
   rules: the double records at the terminal call and refuses what Stripe refuses, for example
   `discounts` together with `allow_promotion_codes`.
+- **Superseded (owner, 2026-11-25): no practice purchase.** One unpaid sale checkout was opened on
+  the preview against live Stripe instead; what it showed is in the plan's As built. The original
+  plan follows.
 - **One practice purchase before Friday** on a Vercel preview deployment of the branch, with:
   - Stripe test-mode keys and test price ids
   - a test-mode copy of the coupon
@@ -259,7 +264,8 @@ transaction id, revenue. There is no dedupe gate; `transaction_id` is on every p
 
 ## Constraints
 
-- **Deadline:** customer-facing pieces live and verified by Thursday 2026-11-26, 11:59 PM Arizona.
+- **Deadline:** customer-facing pieces live and verified by Thursday 2026-11-26, 11:59 PM Arizona
+  (set for a Friday start; with the Wednesday start the merge is the launch).
 - **Stripe API version:** pinned in `frontend/lib/stripe/server.ts`. Verify fields against the
   installed typings.
 - **Live Stripe access** from this machine is the MCP connector, live mode only. Test-mode keys must

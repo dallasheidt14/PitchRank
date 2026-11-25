@@ -13,7 +13,7 @@ afterEach(() => {
 
 describe('getPromotionStatus', () => {
   it.each([
-    ['2026-11-26T12:00:00Z', 'upcoming'],
+    ['2026-11-24T12:00:00Z', 'upcoming'],
     ['2026-11-28T12:00:00Z', 'live'],
     ['2026-12-02T12:00:00Z', 'ended'],
   ])('describes the sale at %s as %s', (iso, state) => {
@@ -60,7 +60,7 @@ describe('getPromotionStatus', () => {
 describe('getLivePromotion', () => {
   it('answers the sale only while it is live, and only for its own id', () => {
     expect(getLivePromotion('black-friday-2026', DURING)).toBe(BLACK_FRIDAY);
-    expect(getLivePromotion('black-friday-2026', at('2026-11-27T06:59:59Z'))).toBeNull();
+    expect(getLivePromotion('black-friday-2026', at('2026-11-25T06:59:59Z'))).toBeNull();
     expect(getLivePromotion('black-friday-2026', at('2026-12-01T07:00:00Z'))).toBeNull();
     expect(getLivePromotion('spring-2027', DURING)).toBeNull();
   });

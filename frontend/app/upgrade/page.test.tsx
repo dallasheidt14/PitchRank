@@ -372,7 +372,7 @@ describe('UpgradePage during a sale', () => {
   });
 
   it.each([
-    ['before the sale starts', 'upcoming', new Date('2026-11-26T12:00:00Z')],
+    ['before the sale starts', 'upcoming', new Date('2026-11-24T12:00:00Z')],
     ['after it ends', 'ended', new Date('2026-12-02T12:00:00Z')],
   ] as const)('shows the two usual cards %s', async (_label, answer, at) => {
     await renderDuring(answer, at);
@@ -481,7 +481,7 @@ describe('UpgradePage during a sale', () => {
     window.history.replaceState(null, '', '/upgrade?promo_preview=1');
     state.user = { id: 'admin-1' };
     state.profile = { plan: 'admin' };
-    await renderDuring('upcoming', new Date('2026-11-25T12:00:00Z'));
+    await renderDuring('upcoming', new Date('2026-11-24T12:00:00Z'));
 
     expect(saleCard()).not.toBeNull();
   });
@@ -490,7 +490,7 @@ describe('UpgradePage during a sale', () => {
     window.history.replaceState(null, '', '/upgrade?promo_preview=1');
     state.user = { id: 'user-1' };
     state.profile = { plan: 'free' };
-    await renderDuring('upcoming', new Date('2026-11-25T12:00:00Z'));
+    await renderDuring('upcoming', new Date('2026-11-24T12:00:00Z'));
 
     expect(saleCard()).toBeNull();
   });
@@ -510,7 +510,7 @@ describe('UpgradePage during a sale', () => {
 
     it('shows the normal page before the sale starts', async () => {
       state.params = { campaign: 'black-friday-2026' };
-      await renderDuring('upcoming', new Date('2026-11-26T12:00:00Z'));
+      await renderDuring('upcoming', new Date('2026-11-24T12:00:00Z'));
 
       expect(ended()).toBeNull();
       expect(saleCard()).toBeNull();

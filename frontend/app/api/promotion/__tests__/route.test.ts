@@ -60,7 +60,7 @@ describe('GET /api/promotion', () => {
     expect(body.serverNow).toBe(Date.parse('2026-11-28T12:00:00Z'));
     expect(body.promotion).toMatchObject({
       id: 'black-friday-2026',
-      startsAt: '2026-11-27T07:00:00Z',
+      startsAt: '2026-11-25T07:00:00Z',
       endsAt: '2026-12-01T07:00:00Z',
     });
     expect(JSON.stringify(body)).not.toContain('coupon_secret_value');

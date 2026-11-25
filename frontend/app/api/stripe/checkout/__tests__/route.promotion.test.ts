@@ -146,7 +146,7 @@ vi.mock('@/lib/supabase/service', () => ({ getSupabaseAdmin: () => db.current!.c
 import { POST } from '../route';
 
 const USER_ID = '11111111-1111-1111-1111-111111111111';
-const BLACK_FRIDAY = { startsAt: Date.parse('2026-11-27T07:00:00Z'), endsAt: Date.parse('2026-12-01T07:00:00Z') };
+const BLACK_FRIDAY = { startsAt: Date.parse('2026-11-25T07:00:00Z'), endsAt: Date.parse('2026-12-01T07:00:00Z') };
 const DURING = new Date('2026-11-28T12:00:00Z');
 const ENDED_NOTICE = 'The Black Friday sale has ended.';
 const HOUR = 60 * 60 * 1000;
@@ -344,7 +344,7 @@ describe('a sale that is not on', () => {
   });
 
   it.each([
-    ['before it starts', '2026-11-27T06:59:59Z', ''],
+    ['before it starts', '2026-11-25T06:59:59Z', ''],
     ['at its end', '2026-12-01T07:00:00Z', ''],
     ['after it ends', '2026-12-02T00:00:00Z', ''],
     ['with the kill switch on', '2026-11-28T12:00:00Z', 'true'],

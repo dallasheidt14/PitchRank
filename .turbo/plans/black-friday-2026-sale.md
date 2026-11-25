@@ -4,10 +4,31 @@ status: done
 
 # Plan: Black Friday 2026 sale
 
-## As built (2026-11-24; review fixes 2026-11-25)
+## As built (2026-11-24; review fixes and owner changes 2026-11-25)
 
 Every step below shipped. These details differ from the text that follows:
 
+- **The sale starts Wed 2026-11-25 00:00 Arizona, not Friday (owner, 2026-11-25, before merge):**
+  "I want to turn it on now. And still have it run through until dec 1 1am like we already have
+  planned."
+  - `startsAt` is `2026-11-25T07:00:00Z`, already past at merge, so the sale goes live when the merge
+    deploys. The end is unchanged: new sale checkouts stop at 00:00 Tue 2026-12-01 Arizona
+    (`2026-12-01T07:00:00Z`), an open one can still finish within its 31 minutes, and the coupon's
+    `redeem_by` stays an hour after the end, the owner's "1am".
+  - Below, "four days" means six and "Friday" means the new start. The "Before Friday" checks that
+    need a sale still upcoming (`upcoming`, two cards, admin preview, the refused sale checkout)
+    cannot run; the other "Before Friday" checks and the "At 00:00 Friday" checks run once, right
+    after the merge deploys.
+  - The sale copy stays as written, including the paywall line's "Black Friday through Cyber Monday
+    only" (owner, 2026-11-25, when asked).
+- **No practice purchase on the preview (owner, 2026-11-25),** so Owner step 1's test-mode setup and
+  Verification's practice purchase were not done. In their place, one unpaid sale checkout was
+  opened on this branch's preview against live Stripe, with the live coupon and a four-hour
+  preview-only window: Stripe showed $47.88 today, then $69.99 per year, a "Black Friday 2026" line
+  of -$22.11, no trial and no code box. Nothing has yet run the webhook against real Stripe events;
+  watching the first real purchases and the daily sweep cover that. The owner created the live
+  coupon by hand (the Stripe connector refuses writes). Its id lives only in Vercel settings, for
+  production and for this branch's preview, whose window was then closed; never in the repo.
 - **Upgrade grid:** three columns from `lg` (1024px) up, not `md`. At 768px three columns clipped the
   existing Yearly button ("Start Free Trial — Best Va…"). On tablets the sale card takes its own row
   above Monthly and Yearly, which keep their two-column row; phones are as planned (sale first).
@@ -1493,10 +1514,10 @@ code to copy blind.
     renewal
   - then watch the first real purchases through the Stripe MCP: a $47.88 invoice, no trial,
     `promotion` metadata, the profile premium
-- **Daily duplicate sweep**, each morning Sat–Tue (Arizona), with a final run after 00:31 Tuesday.
+- **Daily duplicate sweep**, each morning Thu–Tue (Arizona), with a final run after 00:31 Tuesday.
   It backs up a lost Telegram alert.
   - **What it reads:** every run reads read-only from the **campaign start**
-    (`2026-11-27T07:00:00Z`) through the time it runs, so a late or missed run loses nothing. It
+    (`2026-11-25T07:00:00Z`) through the time it runs, so a late or missed run loses nothing. It
     lists live (`active`, `trialing`, `past_due`) subscriptions created in that span.
   - **What it flags, as candidates:**
     - (a) any whose Stripe customer is stored on no `user_profiles` row. That covers guest
@@ -1519,7 +1540,7 @@ code to copy blind.
 - **Outcome measurement** (the after-launch summary plan, not this PR): net new paying annual
   subscribers during the window. Count from Stripe subscriptions carrying `promotion` metadata with
   an invoice that charged real money, minus those the owner refunded as duplicates. Compare with the
-  same four weekdays one week earlier for standard annual paid starts. Its counting rules are
+  same span one week earlier for standard annual paid starts. Its counting rules are
   designed against the real data when it runs.
 
 ## Context Files

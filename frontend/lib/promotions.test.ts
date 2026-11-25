@@ -39,10 +39,10 @@ const SPRING_SALE: Promotion = {
 };
 
 describe('the Black Friday 2026 entry', () => {
-  it('runs Fri 00:00 to the end of Monday, Arizona time, for $47.88 then $69.99', () => {
+  it('runs Wed 00:00 to the end of Monday, Arizona time, for $47.88 then $69.99', () => {
     expect(BLACK_FRIDAY).toMatchObject({
       id: 'black-friday-2026',
-      startsAt: '2026-11-27T07:00:00Z',
+      startsAt: '2026-11-25T07:00:00Z',
       endsAt: '2026-12-01T07:00:00Z',
       planInterval: 'year',
       campaign: 'black-friday-2026',
@@ -60,8 +60,8 @@ describe('the Black Friday 2026 entry', () => {
 
 describe('promotionStateAt', () => {
   it.each([
-    ['2026-11-27T06:59:59Z', 'upcoming'],
-    ['2026-11-27T07:00:00Z', 'live'],
+    ['2026-11-25T06:59:59Z', 'upcoming'],
+    ['2026-11-25T07:00:00Z', 'live'],
     ['2026-12-01T06:59:59Z', 'live'],
     ['2026-12-01T07:00:00Z', 'ended'],
   ])('reads %s as %s: the start counts, the end does not', (iso, state) => {
@@ -71,8 +71,8 @@ describe('promotionStateAt', () => {
 
 describe('findRelevantPromotion', () => {
   it('finds a sale starting within 7 days, and none further out', () => {
-    expect(findRelevantPromotion(at('2026-11-20T07:00:00Z'))).toBe(BLACK_FRIDAY);
-    expect(findRelevantPromotion(at('2026-11-20T06:59:59Z'))).toBeNull();
+    expect(findRelevantPromotion(at('2026-11-18T07:00:00Z'))).toBe(BLACK_FRIDAY);
+    expect(findRelevantPromotion(at('2026-11-18T06:59:59Z'))).toBeNull();
   });
 
   it('keeps a sale for 30 days after it ends, then lets it go', () => {
