@@ -1,0 +1,24 @@
+{
+  "total_count": 1,
+  "jobs": [
+    {
+      "id": 900000000101,
+      "name": "scrape-ut-games",
+      "conclusion": "success",
+      "steps": [
+        {"number": 1, "name": "Set up job", "conclusion": "success"},
+        {"number": 2, "name": "Checkout repository", "conclusion": "success"},
+        {"number": 3, "name": "Set up Python", "conclusion": "success"},
+        {"number": 4, "name": "Install dependencies", "conclusion": "success"},
+        {"number": 5, "name": "Schedule guard (skip the DST-wrong cron)", "conclusion": "success"},
+        {"number": 6, "name": "Scrape UT Affinity games (ranked source divisions, male+female, window)", "conclusion": "skipped"},
+        {"number": 7, "name": "Upload UT scraper output", "conclusion": "skipped"},
+        {"number": 8, "name": "Import scraped UT games", "conclusion": "skipped"},
+        {"number": 9, "name": "Report results", "conclusion": "success"},
+        {"number": 17, "name": "Post Set up Python", "conclusion": "success"},
+        {"number": 18, "name": "Post Checkout repository", "conclusion": "success"},
+        {"number": 19, "name": "Complete job", "conclusion": "success"}
+      ]
+    }
+  ]
+}

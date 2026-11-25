@@ -1,0 +1,52 @@
+name: Scheduled Jobs Check
+
+on:
+  schedule:
+    # Daily, on an offset minute. GitHub starts daily crons hours late here, so the email
+    # usually lands in the Arizona morning.
+    - cron: '41 6 * * *'
+    # The Tuesday all-clear, which emails even when nothing is wrong. It sits after the
+    # rankings check's 30-hour mark (Tuesday 18:30 UTC), so that line is normally decided.
+    - cron: '0 19 * * 2'
+  workflow_dispatch:
+  # No dry-run input: a dry run prints the email, and this repo's Actions logs are public.
+  # A manual run is a real daily check.
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  check:
+    name: Scheduled Jobs Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.lock
+
+      # The script checks its own settings: a missing one makes its checks incomplete and the
+      # run red, and the email still goes out when it can.
+      - name: Check scheduled jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          PYTHONUNBUFFERED: '1'
+          WEEKLY: ${{ github.event.schedule == '0 19 * * 2' }}
+        run: python scripts/check_scheduled_jobs.py
