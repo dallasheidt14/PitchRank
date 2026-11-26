@@ -1,6 +1,6 @@
 ---
 name: github-actions-debug
-description: Debug GitHub Actions workflow failures for PitchRank. Use when investigating CI/CD errors, workflow timeouts, runner issues, scheduled runs that never started or ran late, runs a concurrency group cancelled, or profiling where a slow multi-hour run spends its time.
+description: Debug GitHub Actions workflow failures for PitchRank. Use when investigating CI/CD errors, workflow timeouts, runner issues, scheduled runs that never started or ran late, runs a concurrency group cancelled, a required PR check stuck pending after its run finished, or profiling where a slow multi-hour run spends its time.
 ---
 
 # GitHub Actions Debug
@@ -104,6 +104,16 @@ jobs:
 **Cause:** `rankings_full` is fully published (confirm with `max(last_calculated)`); the provenance archive in `src/rankings/input_archive.py` failed, so "Preserve verified prediction inputs privately" was skipped. A `query_execution` entry is a database call that raised and was not recovered: the archive retires one only when the same asyncio task's very next request is the identical one, or when `save_rankings_to_supabase` confirms every `rankings_full` row landed.
 **Fix:** Pair each listed error with its call in the log (`failed (attempt`, `Retrying in`, `Retriable`, `missing optional`). An error whose call later succeeded is a false red and needs no rerun: end-of-run `failed_batches` retries (`saved on retry`) and the `prediction_feature_history` column-strip fallback are the known ones (backlog: "Tell the ranking archive when a save recovers by a later or altered resend"). An error with no later success is a read or write the run skipped (`failed after all retries`, a tolerated `current_rankings` or RPC batch); a skipped merge-map page (`No team merges loaded (version: error)`) means the rankings were built without merges and need a rerun. Those skipped failures fail the run deliberately, as `tests/unit/test_ranking_input_archive.py` pins; read those tests before relaxing the rule.
 
+### 8. A Required Check Stays Pending After Its Run Succeeded
+**Error:** `gh pr checks` shows a required check (seen with the ci.yml aggregate "Python Tests") pending long after its run reads `completed success` in `gh run list`, and the PR's `mergeStateStatus` stays `UNKNOWN`.
+**Cause:** GitHub left the job's status stale: it reads `in_progress` with `conclusion: success` and a `completed_at`. Not a code problem; waiting does not clear it.
+**Fix:** Find the stale job, then rerun only it:
+```bash
+gh api repos/dallasheidt14/PitchRank/actions/runs/<run-id>/jobs -q '.jobs[] | select(.status == "in_progress" and .conclusion == "success") | [.id, .name] | @tsv'
+gh run rerun --repo dallasheidt14/PitchRank --job <job-id>
+```
+An aggregate job reruns in seconds, reusing the results of the jobs it needs (rerunning an upstream job reruns its whole suite). The merge state then turns `CLEAN`, and `scripts/pr_wait.py` can merge.
+
 ## PitchRank Workflows
 
 Schedules live in CLAUDE.md's workflow table; check the yml when it matters. Durations
@@ -149,6 +159,9 @@ snapshot/rankings saves ~24m with statement-timeout retries.
 ```bash
 # Re-run failed jobs only
 gh run rerun <run-id> --repo dallasheidt14/PitchRank --failed
+
+# Re-run one job (and the jobs that need it)
+gh run rerun --repo dallasheidt14/PitchRank --job <job-id>
 
 # Re-run entire workflow
 gh run rerun <run-id> --repo dallasheidt14/PitchRank

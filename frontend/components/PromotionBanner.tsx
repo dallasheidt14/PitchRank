@@ -3,13 +3,13 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { X } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 import { useInCampaignPeriod, useLivePromotion } from '@/hooks/useLivePromotion';
 import { recordClickAttribution } from '@/lib/attribution';
 import { trackPromotionEvent } from '@/lib/events';
 import { formatCountdown, isInSaleAudience } from '@/lib/promotions';
 
-/** Set on `<html>` while the banner shows; `globals.css` grows `--site-header-height` by the banner's 2.5rem. */
+/** Set on `<html>` while the banner shows; `globals.css` adds the banner's height to `--site-header-height`. */
 const PROMO_BANNER_VISIBLE_CLASS = 'promo-banner-visible';
 
 const DISMISSED_KEY = 'pitchrank_promo_banner_dismissed';
@@ -82,39 +82,50 @@ function LivePromotionBanner({ user, profile, isLoading, error }: PromotionBanne
     }
     setDismissedId(promotion.id);
   };
-  const linkClass = 'shrink-0 font-semibold text-accent underline-offset-4 hover:underline';
+  const linkClass =
+    'flex shrink-0 items-center gap-1 rounded-md bg-primary px-2 py-1.5 text-xs font-bold uppercase tracking-wide text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:px-3';
+  const claimLabel = (
+    <>
+      Claim<span className="hidden md:inline"> Offer</span>
+      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+    </>
+  );
 
   return (
     <div
       role="region"
       aria-label={promotion.copy.cardLabel}
       data-testid="promotion-banner"
-      className="safe-top bg-primary text-primary-foreground"
+      className="pt-[var(--promo-banner-pad-top)] pb-2 bg-accent text-primary"
     >
-      <div className="container mx-auto flex h-10 items-center gap-3 px-3 sm:px-4 text-sm">
-        <p className="min-w-0 flex-1 truncate">
-          <span className="hidden md:inline font-display font-semibold tracking-wide">
-            {promotion.copy.bannerDesktop}
-          </span>
-          <span className="md:hidden font-display font-semibold">{promotion.copy.bannerMobile}</span>
-          <span className="hidden md:inline ml-3 tabular-nums text-accent" data-testid="promotion-banner-countdown">
+      <div className="container relative mx-auto flex h-10 items-center justify-center gap-2 pl-2 pr-10 sm:pl-10 md:gap-3 md:px-11">
+        <p className="min-w-0 truncate font-semibold">
+          <span className="font-display text-sm md:text-base font-bold uppercase md:tracking-wide">
+            {promotion.copy.bannerLabel}
+          </span>{' '}
+          <span className="hidden md:inline text-[15px]">{promotion.copy.bannerDesktop}</span>
+          <span className="md:hidden text-[13px]">{promotion.copy.bannerMobile}</span>
+          <span
+            className="hidden lg:inline-block ml-3 rounded-full bg-primary px-2.5 py-0.5 align-middle text-xs tabular-nums text-accent"
+            data-testid="promotion-banner-countdown"
+          >
             Ends in {formatCountdown(remainingMs)}
           </span>
         </p>
         {onUpgradePage ? (
           <a href={href} onClick={onClaim} className={linkClass}>
-            Claim Offer
+            {claimLabel}
           </a>
         ) : (
           <Link href={href} onClick={onClaim} className={linkClass}>
-            Claim Offer
+            {claimLabel}
           </Link>
         )}
         <button
           type="button"
           onClick={dismiss}
           aria-label="Dismiss the sale banner"
-          className="shrink-0 -mr-2 flex h-10 w-10 items-center justify-center rounded text-primary-foreground/80 hover:text-primary-foreground"
+          className="absolute right-0 top-0 flex h-10 w-10 items-center justify-center rounded text-primary/80 hover:text-primary"
         >
           <X className="h-4 w-4" />
         </button>

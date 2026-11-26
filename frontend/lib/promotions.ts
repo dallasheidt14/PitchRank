@@ -40,6 +40,8 @@ export interface Promotion {
     amountCents: number;
   };
   copy: {
+    /** Shown before `bannerDesktop`/`bannerMobile` on every width, so neither repeats it. */
+    bannerLabel: string;
     bannerDesktop: string;
     bannerMobile: string;
     cardLabel: string;
@@ -66,8 +68,9 @@ export const PROMOTIONS: readonly Promotion[] = [
       amountCents: 4788,
     },
     copy: {
-      bannerDesktop: 'BLACK FRIDAY: Get a full year of PitchRank Premium for just $3.99/mo.',
-      bannerMobile: 'Black Friday: Premium for $3.99/mo.',
+      bannerLabel: 'Black Friday',
+      bannerDesktop: 'Get a full year of PitchRank Premium for just $3.99/mo.',
+      bannerMobile: 'Premium for $3.99/mo.',
       cardLabel: 'Black Friday Exclusive',
       cta: 'Unlock Premium',
       endedNotice: 'The Black Friday sale has ended.',

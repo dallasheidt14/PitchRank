@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'fs';
+import path from 'path';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
@@ -160,6 +162,10 @@ describe('who sees the sale banner', () => {
     await renderAt(DURING);
 
     expect(bannerShown()).toBe(true);
+    // The label, a space, then the text, on every width.
+    const text = banner()!.querySelector('p')!;
+    expect(text.textContent).toMatch(/^Black Friday Get a full year of PitchRank Premium for just \$3\.99\/mo\./);
+    expect(text.firstElementChild!.className.split(/\s+/)).not.toContain('hidden');
     expect(banner()!.textContent).toContain(BLACK_FRIDAY.copy.bannerDesktop);
     expect(banner()!.textContent).toContain(BLACK_FRIDAY.copy.bannerMobile);
     expect(trackPromotionEvent).toHaveBeenCalledWith(BLACK_FRIDAY, 'banner_view', { source: 'banner' });
@@ -216,10 +222,20 @@ describe('the banner in the header', () => {
     const header = container.querySelector('[data-testid="main-navigation"]')!;
     expect(header.firstElementChild).toBe(banner());
     expect(banner()!.nextElementSibling!.className).toContain('h-16');
-    // It takes over the header's safe-area padding (globals.css drops the header's while the class is set).
-    expect(banner()!.className.split(/\s+/)).toContain('safe-top');
+    // It carries the safe-area inset in place of the header's padding, and --site-header-height adds up these three.
+    expect(banner()!.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(['pt-[var(--promo-banner-pad-top)]', 'pb-2'])
+    );
     expect(banner()!.firstElementChild!.className.split(/\s+/)).toContain('h-10');
     expect(htmlHasBannerClass()).toBe(true);
+
+    const css = readFileSync(path.join(__dirname, '../app/globals.css'), 'utf-8');
+    const rule = (selector: RegExp) => css.match(new RegExp(`${selector.source} \\{([^}]*)\\}`))?.[1].trim();
+    expect(css).toContain('--promo-banner-pad-top: max(0.5rem, env(safe-area-inset-top, 0px));');
+    expect(rule(/html\.promo-banner-visible/)).toBe(
+      '--site-header-height: calc(4rem + 3rem + var(--promo-banner-pad-top));'
+    );
+    expect(rule(/html\.promo-banner-visible header\.safe-top/)).toBe('padding-top: 0;');
   });
 
   it('goes away when dismissed, for the rest of the session', async () => {

@@ -1,6 +1,6 @@
 # Black Friday 2026 sale — design
 
-Status: approved 2026-11-24, then revised by the owner's rulings during planning and before launch.
+Status: approved 2026-11-24, then revised by the owner's rulings during planning, before launch and after it.
 
 Where this design and `.turbo/plans/black-friday-2026-sale.md` differ, the plan wins.
 
@@ -204,13 +204,14 @@ coupon.
 - Decided from the shipped sale settings and a server "now" (a tiny cached endpoint or the response
   `Date` header), so a wrong browser clock can't show it outside the window. Checkout still decides
   on its own.
-- Desktop copy: "BLACK FRIDAY: Get a full year of PitchRank Premium for just $3.99/mo. — Claim Offer".
-  Mobile copy: "Black Friday: Premium for $3.99/mo."
+- Copy: a "Black Friday" label, then "Get a full year of PitchRank Premium for just $3.99/mo." on
+  desktop or "Premium for $3.99/mo." on phones, and a "Claim Offer →" button ("Claim →" on phones).
 - Live countdown to the end instant, so it is the same in every time zone.
 - Dismissible for the session.
 - Not in the server HTML, so crawlers and SEO see nothing; keep layout shift minimal.
-- Brand: Forest Green `#0B5345` with the site's existing accent, Oswald display type. The brief's
-  "lime green" maps to the existing accent token rather than a new colour.
+- Brand: the site's existing accent (electric yellow) with Forest Green `#0B5345` text (owner,
+  2026-11-25: "make it stand out a bit more"); the label in Oswald display type, the rest in the body
+  font. The brief's "lime green" maps to the existing accent token rather than a new colour.
 
 **Upgrade page.**
 - During the sale a third card, the Black Friday card, is added and is visually dominant. The
